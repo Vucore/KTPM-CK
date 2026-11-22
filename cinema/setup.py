@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 from pathlib import Path
 
@@ -10,6 +11,7 @@ from psycopg import sql
 
 ROOT = Path(__file__).resolve().parent.parent
 SCHEMAS = ("cinema_catalog", "cinema_booking", "cinema_payment")
+SHOW_TIMES = ("11:00", "15:30", "20:00")
 
 
 def migrate(connection):
@@ -41,6 +43,37 @@ def seed(connection):
     """,
         prepare=False,
     )
+    seed_theatrical_films(connection)
+
+
+def seed_theatrical_films(connection):
+    films = json.loads((ROOT / "cinema/demo_movies.json").read_text(encoding="utf-8"))
+    first_showings = [(film["id"], "demo") for film in films]
+    reruns = [(film["id"], "rerun") for film in films[:6]]
+    screenings = []
+    for index, (movie_id, label) in enumerate(first_showings + reruns):
+        day, slot = divmod(index, len(SHOW_TIMES))
+        screenings.append((f"{movie_id}-{label}", movie_id, 3 + day, SHOW_TIMES[slot], 75000 + slot * 10000))
+    with connection.cursor() as cursor:
+        cursor.executemany(
+            """
+            INSERT INTO cinema_catalog.movies (id, title, genre, duration_minutes, synopsis)
+            VALUES (%(id)s, %(title)s, %(genre)s, %(duration)s, %(synopsis)s)
+            ON CONFLICT (id) DO NOTHING
+            """,
+            films,
+        )
+        cursor.executemany(
+            """
+            INSERT INTO cinema_catalog.screenings (id, movie_id, auditorium_id, starts_at, base_price)
+            VALUES (%s, %s, 'room-1',
+                ((now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date + %s + %s::time)
+                    AT TIME ZONE 'Asia/Ho_Chi_Minh',
+                %s)
+            ON CONFLICT (id) DO NOTHING
+            """,
+            screenings,
+        )
 
 
 def main():

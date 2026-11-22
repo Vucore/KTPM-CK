@@ -5,7 +5,7 @@ from fastapi import FastAPI, HTTPException
 from cinema.common import Database, Settings, configure_http
 
 SCREENINGS = """
-    SELECT s.id, m.title, m.genre, m.duration_minutes, m.synopsis,
+    SELECT s.id, s.movie_id, m.title, m.genre, m.duration_minutes, m.synopsis,
            a.name AS auditorium, s.auditorium_id, s.starts_at, s.base_price
     FROM cinema_catalog.screenings s
     JOIN cinema_catalog.movies m ON m.id = s.movie_id

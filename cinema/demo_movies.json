@@ -1,0 +1,184 @@
+[
+  {
+    "id": "the-kid",
+    "title": "The Kid",
+    "duration": 68,
+    "genre": "Hài · Gia đình",
+    "synopsis": "Một người lang thang nuôi cậu bé bị bỏ rơi và tìm cách ở bên em khi hai người có nguy cơ bị chia cách."
+  },
+  {
+    "id": "metropolis",
+    "title": "Metropolis",
+    "duration": 153,
+    "genre": "Khoa học viễn tưởng",
+    "synopsis": "Con trai người cai trị thành phố tương lai làm quen với Maria và khám phá cuộc sống của những người lao động dưới lòng đất."
+  },
+  {
+    "id": "the-general",
+    "title": "The General",
+    "duration": 78,
+    "genre": "Hành động · Hài",
+    "synopsis": "Một lái tàu đuổi theo những kẻ cướp đầu máy và giải cứu người yêu trong cuộc Nội chiến Mỹ."
+  },
+  {
+    "id": "the-thief-of-bagdad",
+    "title": "The Thief of Bagdad",
+    "duration": 155,
+    "genre": "Phiêu lưu · Kỳ ảo",
+    "synopsis": "Một tên trộm phải tìm bảo vật kỳ diệu để giành tình yêu của một nàng công chúa."
+  },
+  {
+    "id": "safety-last",
+    "title": "Safety Last!",
+    "duration": 74,
+    "genre": "Hài · Tình cảm",
+    "synopsis": "Một chàng trai tỉnh lẻ trèo lên mặt ngoài tòa nhà để giúp cửa hàng nơi mình làm việc thu hút khách."
+  },
+  {
+    "id": "caligari",
+    "title": "The Cabinet of Dr. Caligari",
+    "duration": 76,
+    "genre": "Kinh dị · Bí ẩn",
+    "synopsis": "Tại hội chợ, một nhà thôi miên trưng bày người mộng du có khả năng tiên đoán những cái chết."
+  },
+  {
+    "id": "sunrise",
+    "title": "Sunrise",
+    "duration": 94,
+    "genre": "Tình cảm · Chính kịch",
+    "synopsis": "Một đôi vợ chồng rạn nứt tìm lại tình cảm trong chuyến đi bất ngờ tới thành phố."
+  },
+  {
+    "id": "gold-rush",
+    "title": "The Gold Rush",
+    "duration": 95,
+    "genre": "Hài · Phiêu lưu",
+    "synopsis": "Chàng lang thang của Chaplin lên đường tìm vàng giữa cái lạnh và sự cô độc của vùng Klondike."
+  },
+  {
+    "id": "the-circus",
+    "title": "The Circus",
+    "duration": 72,
+    "genre": "Hài · Tình cảm",
+    "synopsis": "Một người lang thang vô tình trở thành ngôi sao của đoàn xiếc và đem lòng yêu cô diễn viên cưỡi ngựa."
+  },
+  {
+    "id": "steamboat-bill",
+    "title": "Steamboat Bill, Jr.",
+    "duration": 71,
+    "genre": "Hài · Hành động",
+    "synopsis": "Một chàng trai trở về giúp cha điều khiển tàu hơi nước, đúng lúc một cơn bão tấn công thị trấn."
+  },
+  {
+    "id": "sherlock-jr",
+    "title": "Sherlock Jr.",
+    "duration": 45,
+    "genre": "Hài · Trinh thám",
+    "synopsis": "Một thợ chiếu phim mơ mình bước lên màn ảnh để phá án và minh oan cho bản thân."
+  },
+  {
+    "id": "our-hospitality",
+    "title": "Our Hospitality",
+    "duration": 74,
+    "genre": "Hài · Tình cảm",
+    "synopsis": "Một chàng trai trở về quê nhà và vô tình làm khách của gia đình có mối thù truyền kiếp với nhà mình."
+  },
+  {
+    "id": "the-navigator",
+    "title": "The Navigator",
+    "duration": 59,
+    "genre": "Hài · Phiêu lưu",
+    "synopsis": "Hai người trẻ không quen tự lập bị mắc kẹt trên một con tàu trôi dạt và phải xoay xở để sống sót."
+  },
+  {
+    "id": "the-freshman",
+    "title": "The Freshman",
+    "duration": 76,
+    "genre": "Hài · Thể thao",
+    "synopsis": "Một tân sinh viên cố gây ấn tượng bằng cách gia nhập đội bóng bầu dục của trường."
+  },
+  {
+    "id": "phantom-of-the-opera",
+    "title": "The Phantom of the Opera",
+    "duration": 93,
+    "genre": "Kinh dị · Tình cảm",
+    "synopsis": "Một người bí ẩn sống dưới nhà hát opera giúp một nữ ca sĩ trẻ trở nên nổi tiếng rồi đòi cô đáp lại tình cảm."
+  },
+  {
+    "id": "hunchback-of-notre-dame",
+    "title": "The Hunchback of Notre Dame",
+    "duration": 133,
+    "genre": "Chính kịch · Lịch sử",
+    "synopsis": "Người kéo chuông nhà thờ Đức Bà tìm cách bảo vệ Esmeralda giữa những xung đột ở Paris thời trung cổ."
+  },
+  {
+    "id": "the-mark-of-zorro",
+    "title": "The Mark of Zorro",
+    "duration": 90,
+    "genre": "Hành động · Phiêu lưu",
+    "synopsis": "Một quý tộc trẻ đeo mặt nạ Zorro để chống lại những kẻ lạm quyền ở California."
+  },
+  {
+    "id": "robin-hood",
+    "title": "Robin Hood",
+    "duration": 127,
+    "genre": "Phiêu lưu · Lịch sử",
+    "synopsis": "Robin Hood tập hợp nhóm bạn ở rừng Sherwood để chống lại sự cai trị của Hoàng tử John."
+  },
+  {
+    "id": "the-lost-world",
+    "title": "The Lost World",
+    "duration": 106,
+    "genre": "Phiêu lưu · Khoa học viễn tưởng",
+    "synopsis": "Một đoàn thám hiểm tìm tới cao nguyên Nam Mỹ, nơi các sinh vật thời tiền sử vẫn còn tồn tại."
+  },
+  {
+    "id": "wings",
+    "title": "Wings",
+    "duration": 144,
+    "genre": "Chiến tranh · Chính kịch",
+    "synopsis": "Hai chàng trai từng là đối thủ trở thành bạn khi cùng gia nhập lực lượng không quân trong Thế chiến I."
+  },
+  {
+    "id": "joan-of-arc",
+    "title": "The Passion of Joan of Arc",
+    "duration": 82,
+    "genre": "Lịch sử · Chính kịch",
+    "synopsis": "Phiên tòa cuối đời của Jeanne d’Arc được tái hiện qua những cuộc chất vấn và lựa chọn của cô."
+  },
+  {
+    "id": "battleship-potemkin",
+    "title": "Battleship Potemkin",
+    "duration": 75,
+    "genre": "Lịch sử · Chính kịch",
+    "synopsis": "Một cuộc nổi dậy của thủy thủ trên chiến hạm lan tới thành phố Odessa."
+  },
+  {
+    "id": "the-lodger",
+    "title": "The Lodger",
+    "duration": 91,
+    "genre": "Giật gân · Bí ẩn",
+    "synopsis": "Một người thuê phòng bí ẩn đến London khi thành phố đang truy tìm kẻ sát nhân hàng loạt."
+  },
+  {
+    "id": "the-golem",
+    "title": "The Golem",
+    "duration": 86,
+    "genre": "Kinh dị · Kỳ ảo",
+    "synopsis": "Một giáo sĩ nặn người khổng lồ bằng đất sét để bảo vệ người dân khu Do Thái ở Praha."
+  },
+  {
+    "id": "prince-achmed",
+    "title": "The Adventures of Prince Achmed",
+    "duration": 65,
+    "genre": "Hoạt hình · Kỳ ảo",
+    "synopsis": "Hoàng tử Achmed cưỡi ngựa bay trong một cuộc phiêu lưu được kể bằng hoạt hình bóng giấy."
+  },
+  {
+    "id": "gullivers-travels",
+    "title": "Gulliver’s Travels",
+    "duration": 76,
+    "genre": "Hoạt hình · Phiêu lưu",
+    "synopsis": "Một thủy thủ trôi dạt đến xứ sở tí hon và tìm cách ngăn cuộc chiến giữa hai vương quốc."
+  }
+]

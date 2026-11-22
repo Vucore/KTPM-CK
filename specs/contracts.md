@@ -4,7 +4,7 @@ Booking phục vụ trang web và API công khai của bản demo. Mã đơn và
 
 | REST | Đầu vào / kết quả |
 |---|---|
-| Catalog `GET /screenings`, `GET /screenings/{id}` | Danh sách suất tương lai hoặc chi tiết suất kèm ghế. |
+| Catalog `GET /screenings`, `GET /screenings/{id}` | Danh sách suất tương lai hoặc chi tiết suất kèm ghế. Mỗi suất có `movie_id` để giao diện nhóm các suất của cùng phim. |
 | Booking `GET /api/screenings`, `GET /api/screenings/{id}/seats` | Danh sách suất và sơ đồ ghế theo trạng thái. |
 | Booking `GET /api/screenings/{id}/updates` | SSE báo thay đổi sau khi một đơn của suất được xác nhận. |
 | Booking `POST /api/checkout` | Nhận suất, danh sách ghế và tên tùy chọn. Trả 201 cùng `booking` và `payment`. |
