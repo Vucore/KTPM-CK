@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="vi">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Chọn Suất · Đặt vé xem phim</title>
+    <link rel="stylesheet" href="/assets/style.css">
+    <script type="module" src="/assets/app.js"></script>
+</head>
+<body>
+    <header class="top">
+        <a class="brand" href="/">Chọn Suất<span>.</span></a>
+        <p>Đặt vé xem phim</p>
+    </header>
+    <main>
+        <p id="notice" role="status" hidden></p>
+        <section id="catalog">
+            <h1>Suất chiếu sắp tới</h1>
+            <div id="screenings" class="cards" aria-live="polite"></div>
+            <button id="reload-catalog" type="button" hidden>Tải lại</button>
+        </section>
+        <section id="seating" hidden>
+            <button class="back" id="back" type="button">← Tất cả suất chiếu</button>
+            <h1 id="movie-title"></h1>
+            <p class="muted" id="movie-details"></p>
+            <div class="seat-layout">
+                <div class="panel">
+                    <div class="screen">Màn hình</div>
+                    <div id="seats"></div>
+                    <div class="legend">
+                        <span><i></i> Trống</span><span><i class="premium"></i> Cao cấp</span>
+                        <span><i class="selected"></i> Đã chọn</span><span><i class="unavailable"></i> Hết chỗ</span>
+                    </div>
+                </div>
+                <form id="checkout" class="panel">
+                    <h2>Ghế của bạn</h2>
+                    <p id="selection" aria-live="polite">Chưa chọn ghế</p>
+                    <label for="customer">Tên trên vé <small>(tùy chọn)</small></label>
+                    <input id="customer" maxlength="80" autocomplete="name">
+                    <button class="primary" id="hold" disabled>Giữ ghế và tiếp tục</button>
+                </form>
+            </div>
+        </section>
+        <section id="order" hidden>
+            <a class="back" href="/">← Tất cả suất chiếu</a>
+            <h1 id="order-heading">Thanh toán</h1>
+            <div class="seat-layout">
+                <div class="panel">
+                    <h2 id="order-title">Đơn đặt vé</h2>
+                    <p id="order-details"></p>
+                    <p><strong id="amount"></strong></p>
+                    <p id="timer"></p>
+                    <p id="payment-status" aria-live="polite"></p>
+                    <button id="reload-order" type="button" hidden>Tải lại đơn</button>
+                </div>
+                <form id="simulate" class="panel" hidden>
+                    <h2>Thanh toán giả lập</h2>
+                    <label for="outcome">Kết quả</label>
+                    <select id="outcome">
+                        <option value="success">Thành công</option>
+                        <option value="decline">Bị từ chối</option>
+                    </select>
+                    <label for="delay">Độ trễ phản hồi (giây)</label>
+                    <input type="number" id="delay" min="0" max="120" value="0" required>
+                    <button class="primary" id="pay">Chạy thanh toán</button>
+                </form>
+            </div>
+            <div id="tickets" class="cards"></div>
+        </section>
+    </main>
+</body>
+</html>
