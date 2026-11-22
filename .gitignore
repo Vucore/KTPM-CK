@@ -2,9 +2,12 @@
 .env
 .env.*
 !.env.example
+.envrc.local
+.direnv/
 
 # Python environments and generated files
 .venv/
+.venv-*/
 venv/
 env/
 __pycache__/
@@ -25,10 +28,16 @@ dist/
 .coverage
 .coverage.*
 htmlcov/
+playwright-report/
+test-results/
 
 # Local runtime files
 .runtime/
 *.log
+*.pid
+
+# Personal design-tool configuration
+.impeccable/config.local.json
 
 # Editors and operating systems
 .idea/

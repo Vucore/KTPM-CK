@@ -10,9 +10,17 @@
 ## Xem lại vé
 
 - Mở **Vé của tôi** trên thanh điều hướng để xem các đơn đã lưu theo phim, suất, ghế và trạng thái. **Xem vé** mở toàn bộ QR trong đơn. **Chi tiết vé** mở vé của một ghế trên giao diện.
-- Chọn **Đăng nhập** hoặc **Tạo tài khoản** trước khi đặt nếu muốn lịch sử theo bạn sang thiết bị khác. Các đơn đặt với vai trò khách gắn với trình duyệt đang dùng.
-- Sao chép **Mã đơn** từ trang xác nhận. Dán mã vào **Tra cứu bằng mã** để mở lại đơn. Nếu đơn thuộc tài khoản, hãy đăng nhập bằng tài khoản đã đặt. Có thể nhập mã của một vé để xem vé riêng.
-- Với đơn khách trước đây, mở mã hoặc đường dẫn đã lưu và chọn **Lưu vào Vé của tôi**. **Bỏ lưu** chỉ gỡ đơn khỏi danh sách hiện tại.
+- Chọn **Đăng nhập** hoặc **Tạo tài khoản** trước khi đặt để lưu lịch sử vào tài khoản. Để xem lại trên thiết bị khác, mở cùng website và đăng nhập bằng tài khoản đó.
+- Đặt dưới dạng khách lưu lịch sử theo trình duyệt. Bạn vẫn xem được lịch sử khi đóng và mở lại trình duyệt nếu cookie còn. Khi đổi máy hoặc mất cookie, dán **Mã đơn** đã sao chép vào **Vé của tôi → Tra cứu bằng mã**.
+- Nếu đơn thuộc tài khoản, hãy đăng nhập bằng tài khoản đã đặt trước khi tra cứu bằng mã đơn. Với đơn khách, bạn có thể mở lại bằng mã rồi bấm **Lưu vào Vé của tôi** để thêm vào lịch sử hiện tại. **Bỏ lưu** chỉ gỡ đơn khỏi danh sách.
+
+## Quét mã QR
+
+1. Mở **Vé của tôi → Xem vé** hoặc trang xác nhận đơn để thấy mã QR của từng ghế.
+2. Quét QR bằng ứng dụng đọc mã và sao chép UUID mà ứng dụng trả về.
+3. Dán UUID vào **Vé của tôi → Tra cứu bằng mã** để xem thông tin của ghế đó. **Chi tiết vé** mở cùng thông tin trực tiếp trên website.
+
+Một QR đại diện cho một vé. Tính năng hiện tại dùng để tra cứu vé điện tử. Quét mã giữ nguyên trạng thái vé và đơn. [Đặc tả vé](../specs/booking.md#vé-điện-tử-và-qr).
 
 ## Hiển thị và dữ liệu
 

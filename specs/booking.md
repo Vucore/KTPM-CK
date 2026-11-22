@@ -18,4 +18,8 @@ Thời gian giữ mặc định là 300 giây, có thể cấu hình bằng `HOL
 
 Thanh toán có thể đi qua `PENDING → PROCESSING → SUCCEEDED` hoặc `DECLINED`. Khách có thể thử lại từ `DECLINED` khi còn giữ ghế. Nếu cần hoàn tiền, trạng thái chuyển `SUCCEEDED → REFUNDED`. Gộp yêu cầu lặp theo khóa idempotency và sự kiện lặp theo mã khoản thanh toán.
 
-Khi Payment đã trả `SUCCEEDED`, giao diện tiếp tục đọc trạng thái đơn. Vé chỉ xuất hiện sau khi Booking xác nhận `CONFIRMED`. Mỗi ghế có một mã vé riêng. Đường dẫn `/?booking=<mã đơn>` mở lại thông tin đơn hoặc vé đã cấp.
+## Vé điện tử và QR
+
+- Khi Payment trả `SUCCEEDED`, giao diện tiếp tục đọc trạng thái đơn. Booking chỉ cấp vé sau khi xác nhận `CONFIRMED`. Mỗi ghế trong đơn có một mã vé UUID riêng.
+- QR được trả dưới dạng SVG và mã hóa chuỗi UUID của vé. Quét QR thu được mã dạng chữ để nhập vào **Tra cứu bằng mã**. API tra cứu trả thông tin phim, phòng, giờ chiếu và ghế của vé tương ứng. Đọc vé hoặc hình QR giữ nguyên trạng thái của hệ thống.
+- Đường dẫn `/?booking=<mã đơn>` mở lại đơn kèm toàn bộ vé đã cấp theo quyền truy cập của đơn. Đường dẫn `/?view=tickets&ticket=<mã vé>` mở đúng một vé. [Quyền truy cập](accounts.md), [hợp đồng API](contracts.md).
