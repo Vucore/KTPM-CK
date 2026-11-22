@@ -6,6 +6,7 @@ from uuid import UUID, uuid4
 
 from fastapi import HTTPException
 
+from cinema.booking.auth import BookingViewer
 from cinema.booking.domain import STATES, BookingConfirmed, BookingObservers, Pricing, TicketBuilder
 from cinema.booking.repositories import BookingRepository, ScreeningSeatRepository, TicketRepository
 from cinema.common import Database, ServiceClient
@@ -74,7 +75,7 @@ class HoldSeatsUseCase:
         self.catalog = catalog
         self.hold_duration = timedelta(seconds=hold_seconds)
 
-    def execute(self, request: CheckoutRequest, key: UUID):
+    def execute(self, request: CheckoutRequest, key: UUID, viewer: BookingViewer):
         labels = sorted(set(request.seats))
         if len(labels) != len(request.seats):
             raise HTTPException(422, "Danh sách ghế bị trùng")
@@ -82,13 +83,13 @@ class HoldSeatsUseCase:
         data = json.dumps([request.screening_id, labels, customer], ensure_ascii=False)
         fingerprint = hashlib.sha256(data.encode()).hexdigest()
         with self.db.transaction() as connection:
-            if existing := self._existing(connection, key, fingerprint):
+            if existing := self._existing(connection, key, fingerprint, viewer):
                 return existing
         screening = self.catalog.screening(request.screening_id)
 
         with self.db.transaction() as connection:
             self.bookings.lock_key(connection, key)
-            if existing := self._existing(connection, key, fingerprint):
+            if existing := self._existing(connection, key, fingerprint, viewer):
                 return existing
             self.seats.sync(connection, screening)
             rows = self.seats.lock(connection, screening["id"], labels)
@@ -107,6 +108,7 @@ class HoldSeatsUseCase:
                 "id": uuid4(),
                 "request_key": key,
                 "request_hash": fingerprint,
+                "account_id": viewer.account_id,
                 "screening_id": screening["id"],
                 "movie_title": screening["title"],
                 "starts_at": screening["starts_at"],
@@ -118,14 +120,21 @@ class HoldSeatsUseCase:
             }
             self.bookings.insert(connection, booking)
             self.seats.hold(connection, booking)
-            return self.bookings.detail(connection, booking["id"])
+            if viewer.history_key:
+                self.bookings.save(connection, viewer.history_key, booking["id"])
+            return self.bookings.detail(connection, booking["id"], viewer)
 
-    def _existing(self, connection, key, fingerprint):
+    def _existing(self, connection, key, fingerprint, viewer):
         existing = self.bookings.by_key(connection, key)
         if existing:
+            if existing["account_id"] and existing["account_id"] != viewer.account_id:
+                raise HTTPException(404, "Không tìm thấy đơn")
             if existing["request_hash"] != fingerprint:
                 raise HTTPException(409, "Idempotency-Key đã được dùng cho một yêu cầu khác")
-            return self.bookings.detail(connection, existing["id"])
+            booking = self.bookings.detail(connection, existing["id"], viewer)
+            if not booking:
+                raise HTTPException(404, "Không tìm thấy đơn")
+            return booking
         return None
 
 
@@ -134,8 +143,8 @@ class CheckoutFacade:
         self.hold = hold
         self.payment = payment
 
-    def start(self, request: CheckoutRequest, key: UUID):
-        booking = self.hold.execute(request, key)
+    def start(self, request: CheckoutRequest, key: UUID, viewer: BookingViewer):
+        booking = self.hold.execute(request, key, viewer)
         if booking["status"] == "HELD":
             payment = self.payment.create(booking["id"], booking["amount"])
         else:
@@ -170,15 +179,36 @@ class BookingService:
             self.seats.sync(connection, screening)
             return self.seats.list(connection, screening["id"])
 
-    def detail(self, booking_id: UUID):
+    def _accessible_booking(self, connection, booking_id, viewer):
+        booking = self.bookings.detail(connection, booking_id, viewer)
+        if not booking:
+            raise HTTPException(404, "Không tìm thấy đơn")
+        return booking
+
+    def detail(self, booking_id: UUID, viewer: BookingViewer):
         with self.db.transaction() as connection:
-            booking = self.bookings.detail(connection, booking_id)
-            if not booking:
-                raise HTTPException(404, "Không tìm thấy đơn")
+            booking = self._accessible_booking(connection, booking_id, viewer)
             booking["tickets"] = (
                 self.tickets.list(connection, booking_id) if booking["status"] == "CONFIRMED" else []
             )
             return booking
+
+    def require_access(self, booking_id: UUID, viewer: BookingViewer):
+        with self.db.transaction() as connection:
+            self._accessible_booking(connection, booking_id, viewer)
+
+    def saved_bookings(self, viewer: BookingViewer):
+        with self.db.transaction() as connection:
+            return self.bookings.saved_list(connection, viewer)
+
+    def save_booking(self, booking_id: UUID, viewer: BookingViewer):
+        with self.db.transaction() as connection:
+            self._accessible_booking(connection, booking_id, viewer)
+            self.bookings.save(connection, viewer.history_key, booking_id)
+
+    def forget_booking(self, booking_id: UUID, viewer: BookingViewer):
+        with self.db.transaction() as connection:
+            self.bookings.forget(connection, viewer.history_key, booking_id)
 
     def ticket(self, code: UUID):
         with self.db.transaction() as connection:

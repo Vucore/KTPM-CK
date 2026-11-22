@@ -97,6 +97,11 @@ def main():
                     **identifiers
                 )
             )
+            if schema == "cinema_booking":
+                connection.execute(sql.SQL(
+                    "GRANT DELETE ON cinema_booking.saved_bookings, cinema_booking.account_sessions, "
+                    "cinema_booking.auth_attempts TO {role}"
+                ).format(**identifiers))
     print("Đã áp dụng schema" + (" và nạp dữ liệu mẫu." if args.seed else "."))
 
 

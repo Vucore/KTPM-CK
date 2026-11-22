@@ -1,0 +1,17 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "side-tab",
+        "value": "*",
+        "files": [
+          "cinema/web/style.css"
+        ],
+        "createdAt": "2026-11-22T08:49:06.929Z",
+        "reason": "Agent: the sole finding is a 3 px accent beside the Phim section heading, grounded in the Galaxy Cinema reference screenshot and outside all movie cards."
+      }
+    ]
+  }
+}

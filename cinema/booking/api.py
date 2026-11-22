@@ -1,18 +1,32 @@
 import asyncio
 import io
 import json
+import re
 from contextlib import asynccontextmanager
 from pathlib import Path
+from secrets import token_hex
 from typing import Annotated
 from uuid import UUID
 
 import httpx
 import qrcode
 import qrcode.image.svg
-from fastapi import FastAPI, Header, Request
-from fastapi.responses import FileResponse, Response, StreamingResponse
+from argon2 import PasswordHasher
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
+from cinema.booking.auth import (
+    SESSION_LIFETIME,
+    AuthService,
+    BookingViewer,
+    Credentials,
+    SignUp,
+    token_digest,
+)
+from cinema.booking.auth_repository import AccountRepository
 from cinema.booking.domain import (
     BookingObservers,
     Pricing,
@@ -35,6 +49,33 @@ from cinema.messaging import Background, Outbox, RabbitWorker
 
 WEB = Path(__file__).resolve().parent.parent / "web"
 RequestKey = Annotated[UUID, Header(alias="Idempotency-Key")]
+ACCOUNT_COOKIE = "chon_suat_session"
+BROWSER_COOKIE = "chon_suat_browser"
+
+
+def cookie_token(request: Request, name: str) -> str | None:
+    value = request.cookies.get(name, "")
+    return value if re.fullmatch(r"[0-9a-f]{64}", value) else None
+
+
+def set_cookie(request: Request, response: Response, name: str, token: str, lifetime: int):
+    response.set_cookie(
+        name, token, max_age=lifetime, secure=request.url.scheme == "https", httponly=True, samesite="lax",
+    )
+
+
+def browser_token(request: Request, response: Response) -> str:
+    if token := cookie_token(request, BROWSER_COOKIE):
+        return token
+    token = token_hex(32)
+    set_cookie(request, response, BROWSER_COOKIE, token, 365 * 24 * 60 * 60)
+    return token
+
+
+def require_same_origin(request: Request):
+    origin = request.headers.get("origin")
+    if origin is not None and origin != f"{request.url.scheme}://{request.url.netloc}":
+        raise HTTPException(403, "Yêu cầu phải đến từ cùng địa chỉ website")
 
 
 def create_app(settings: Settings | None = None, downstream: httpx.BaseTransport | None = None):
@@ -44,6 +85,7 @@ def create_app(settings: Settings | None = None, downstream: httpx.BaseTransport
     transport = ServiceClient(http)
     catalog = CatalogClient(transport, settings.catalog_url)
     payment = PaymentClient(transport, settings.payment_url, settings.internal_key)
+    auth = AuthService(db, AccountRepository(), PasswordHasher(time_cost=2, memory_cost=19456, parallelism=1))
     bookings, seats, tickets = BookingRepository(), ScreeningSeatRepository(), TicketRepository()
     hold = HoldSeatsUseCase(
         db,
@@ -65,7 +107,11 @@ def create_app(settings: Settings | None = None, downstream: httpx.BaseTransport
     async def lifespan(app):
         db.pool.open()
         try:
-            with worker.background(), Background("expire-bookings", service.expire_one):
+            with (
+                worker.background(),
+                Background("expire-bookings", service.expire_one),
+                Background("expire-auth", auth.expire, idle_delay=3600),
+            ):
                 yield
         finally:
             http.close()
@@ -75,9 +121,58 @@ def create_app(settings: Settings | None = None, downstream: httpx.BaseTransport
     configure_http(app, db)
     app.mount("/assets", StaticFiles(directory=WEB), name="assets")
 
+    @app.exception_handler(RequestValidationError)
+    async def validation_error(request: Request, error: RequestValidationError):
+        if request.url.path in {"/api/auth/login", "/api/auth/register"}:
+            return JSONResponse(
+                {"detail": "Hãy kiểm tra định dạng tên đăng nhập và độ dài mật khẩu."},
+                status_code=422,
+            )
+        return await request_validation_exception_handler(request, error)
+
+    def viewer(request: Request, response: Response):
+        response.headers["Cache-Control"] = "no-store"
+        account = auth.current_account(cookie_token(request, ACCOUNT_COOKIE))
+        if account:
+            return BookingViewer(account["id"], f"account:{account['id']}")
+        return BookingViewer(history_key=f"browser:{token_digest(browser_token(request, response))}")
+
+    Viewer = Annotated[BookingViewer, Depends(viewer)]
+    same_origin = [Depends(require_same_origin)]
+
+    def sign_in(authenticate, credentials, request, response):
+        source = request.client.host if request.client else "unknown"
+        account, token = authenticate(credentials, source, cookie_token(request, ACCOUNT_COOKIE))
+        set_cookie(request, response, ACCOUNT_COOKIE, token, int(SESSION_LIFETIME.total_seconds()))
+        response.headers["Cache-Control"] = "no-store"
+        return {"account": account}
+
     @app.get("/", include_in_schema=False)
-    def home():
-        return FileResponse(WEB / "index.html")
+    def home(request: Request):
+        response = FileResponse(
+            WEB / "index.html", headers={"Cache-Control": "private, no-cache", "Referrer-Policy": "same-origin"},
+        )
+        browser_token(request, response)
+        return response
+
+    @app.post("/api/auth/register", status_code=201, dependencies=same_origin)
+    def register(credentials: SignUp, request: Request, response: Response):
+        return sign_in(auth.register, credentials, request, response)
+
+    @app.post("/api/auth/login", dependencies=same_origin)
+    def login(credentials: Credentials, request: Request, response: Response):
+        return sign_in(auth.login, credentials, request, response)
+
+    @app.get("/api/auth/session")
+    def session(request: Request, response: Response):
+        response.headers["Cache-Control"] = "no-store"
+        return {"account": auth.current_account(cookie_token(request, ACCOUNT_COOKIE))}
+
+    @app.post("/api/auth/logout", status_code=204, dependencies=same_origin)
+    def logout(request: Request, response: Response):
+        auth.logout(cookie_token(request, ACCOUNT_COOKIE))
+        response.delete_cookie(ACCOUNT_COOKIE, secure=request.url.scheme == "https", httponly=True, samesite="lax")
+        response.headers["Cache-Control"] = "no-store"
 
     @app.get("/api/screenings")
     def screenings():
@@ -102,18 +197,34 @@ def create_app(settings: Settings | None = None, downstream: httpx.BaseTransport
             stream(), media_type="text/event-stream", headers={"Cache-Control": "no-cache"}
         )
 
-    @app.post("/api/checkout", status_code=201)
-    def start_checkout(request: CheckoutRequest, key: RequestKey):
-        return checkout.start(request, key)
+    @app.post("/api/checkout", status_code=201, dependencies=same_origin)
+    def start_checkout(payload: CheckoutRequest, key: RequestKey, current: Viewer):
+        return checkout.start(payload, key, current)
 
-    app.get("/api/bookings/{booking_id}")(service.detail)
+    @app.get("/api/my-bookings")
+    def my_bookings(current: Viewer):
+        return {"scope": "account" if current.account_id else "browser", "bookings": service.saved_bookings(current)}
+
+    @app.put("/api/my-bookings/{booking_id}", status_code=204, dependencies=same_origin)
+    def save_booking(booking_id: UUID, current: Viewer):
+        service.save_booking(booking_id, current)
+
+    @app.delete("/api/my-bookings/{booking_id}", status_code=204, dependencies=same_origin)
+    def forget_booking(booking_id: UUID, current: Viewer):
+        service.forget_booking(booking_id, current)
+
+    @app.get("/api/bookings/{booking_id}")
+    def booking_detail(booking_id: UUID, current: Viewer):
+        return service.detail(booking_id, current)
 
     @app.get("/api/bookings/{booking_id}/payment")
-    def payment_status(booking_id: UUID):
+    def payment_status(booking_id: UUID, current: Viewer):
+        service.require_access(booking_id, current)
         return payment.find(booking_id)
 
-    @app.post("/api/bookings/{booking_id}/payment/simulate", status_code=202)
-    def simulate_payment(booking_id: UUID, request: SimulatePayment, key: RequestKey):
+    @app.post("/api/bookings/{booking_id}/payment/simulate", status_code=202, dependencies=same_origin)
+    def simulate_payment(booking_id: UUID, request: SimulatePayment, key: RequestKey, current: Viewer):
+        service.require_access(booking_id, current)
         return payment.simulate(booking_id, key, request)
 
     @app.get("/api/tickets/{code}/qr.svg")

@@ -10,3 +10,5 @@
 | Observer | `BookingObservers` gọi `SeatMapObserver` và `log_confirmation` sau commit. | Giao diện nhận tín hiệu cập nhật ghế qua SSE và log ghi số ghế bán. |
 
 `cinema.booking.api.create_app` khởi tạo và truyền các dependency vào constructor. Ví dụ `HoldSeatsUseCase(db, bookings, seats, pricing, catalog, hold_seconds)`. Use case quyết định điều kiện giữ ghế, `BookingRepository` và `ScreeningSeatRepository` thao tác SQL trong transaction mà use case mở.
+
+Phần tài khoản dùng cùng cách tổ chức. `AuthService` nhận `Database`, `AccountRepository` và bộ băm mật khẩu qua constructor. Service xử lý đăng ký, giới hạn lượt thử và vòng đời phiên. Repository chứa truy vấn PostgreSQL. `CheckoutFacade` vẫn điều phối giữ ghế và tạo phiên thanh toán, với người đặt được truyền từ Booking API.

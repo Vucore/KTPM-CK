@@ -29,4 +29,4 @@ export const artwork = [
     {"id": "gullivers-travels", "title": "Gulliver’s Travels", "poster": "gullivers-travels-poster.jpg"},
 ];
 
-export const featuredMovies = ["metropolis", "the-kid", "the-thief-of-bagdad", "caligari", "wings", "saigon"];
+export const featuredMovies = ["saigon", "metropolis", "the-kid", "orbit", "the-thief-of-bagdad", "wings"];

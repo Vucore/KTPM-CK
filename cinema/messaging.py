@@ -66,8 +66,12 @@ class Outbox:
 
 
 class Background:
-    def __init__(self, name: str, tick: Callable[[], bool], cleanup: Callable[[], None] | None = None):
+    def __init__(
+        self, name: str, tick: Callable[[], bool], cleanup: Callable[[], None] | None = None,
+        *, idle_delay: float = 0.5,
+    ):
         self.stop = threading.Event()
+        self.idle_delay = idle_delay
         self.thread = threading.Thread(target=self.run, args=(tick, cleanup), name=name, daemon=True)
 
     def run(self, tick, cleanup):
@@ -75,7 +79,7 @@ class Background:
             while not self.stop.is_set():
                 try:
                     if not tick():
-                        self.stop.wait(0.5)
+                        self.stop.wait(self.idle_delay)
                 except Exception:
                     LOGGER.exception("Background task failed")
                     self.stop.wait(2)

@@ -1,4 +1,4 @@
-import { artwork, featuredMovies } from "./films/artwork.js";
+import { artwork, featuredMovies } from "./films/artwork.js?v=2";
 
 const $ = (id) => document.getElementById(id);
 const vietnamTime = { timeZone: "Asia/Ho_Chi_Minh" };
@@ -22,10 +22,21 @@ const paymentLabels = {
     SUCCEEDED: "Thanh toán thành công. Đang chờ xác nhận vé…",
     REFUNDED: "Đã hoàn tiền do đơn hết hạn.",
 };
+const bookingLabels = {
+    HELD: "Chờ xác nhận",
+    CONFIRMED: "Đã cấp vé",
+    EXPIRED: "Hết hạn giữ ghế",
+};
+const page = new URLSearchParams(location.search);
+const signingUp = page.get("mode") === "register";
+const accountUpdates = "BroadcastChannel" in window ? new BroadcastChannel("chon-suat.account") : null;
+const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 
 let movies = [];
 let featured = [];
 let featuredIndex = 0;
+let featuredPlaying = !reducedMotion.matches;
+let featuredTimer = null;
 let screening = null;
 let seatOrigin = null;
 let selected = new Set();
@@ -40,7 +51,7 @@ let paymentRevision = 0;
 let booking = null;
 let clockOffset = 0;
 let payment = null;
-let bookingId = new URLSearchParams(location.search).get("booking");
+let bookingId = page.get("booking");
 let loadingOrder = false;
 let missingOrder = false;
 let shownTickets = "";
@@ -70,10 +81,14 @@ function showStage(step) {
 }
 
 function show(view) {
-    for (const id of ["catalog", "seating", "order"]) $(id).hidden = id !== view;
-    $("booking-flow").hidden = view === "catalog";
-    $("home-nav").hidden = view !== "catalog";
-    $("flow-nav").hidden = view === "catalog";
+    for (const id of ["catalog", "seating", "order", "my-tickets", "account"]) $(id).hidden = id !== view;
+    $("booking-flow").hidden = view !== "seating" && view !== "order";
+    $("quick-book-link").hidden = view !== "catalog";
+    syncFeaturedMotion();
+    if (view === "my-tickets") $("ticket-history-link").setAttribute("aria-current", "page");
+    else $("ticket-history-link").removeAttribute("aria-current");
+    if (view === "account") $("account-link").setAttribute("aria-current", "page");
+    else $("account-link").removeAttribute("aria-current");
     if (view === "seating") showStage("step-seats");
     if (view === "order") showStage("step-payment");
 }
@@ -123,6 +138,17 @@ function screeningLabel(slot) {
     return `${shortTime(slot.starts_at)} · ${dateLabel(slot.starts_at)} · ${slot.auditorium}`;
 }
 
+function orderUrl(id) {
+    return `/?booking=${encodeURIComponent(id)}`;
+}
+
+function report(id, message = "", state = "") {
+    const node = $(id);
+    node.hidden = !message;
+    node.dataset.state = state;
+    setText(id, message);
+}
+
 function groupMovies(screenings) {
     const groups = new Map();
     for (const slot of screenings) {
@@ -130,7 +156,7 @@ function groupMovies(screenings) {
         if (!groups.has(key)) {
             groups.set(key, {
                 key, title: slot.title, genre: slot.genre, duration: slot.duration_minutes,
-                synopsis: slot.synopsis, art: filmArt.get(slot.movie_id ?? slot.title), screenings: [],
+                art: filmArt.get(slot.movie_id ?? slot.title), screenings: [],
             });
         }
         groups.get(key).screenings.push(slot);
@@ -163,10 +189,48 @@ function renderFeatured() {
     }
     setText("featured-title", film.title);
     setText("featured-meta", `${film.genre} · ${film.duration} phút`);
-    setText("featured-synopsis", film.synopsis);
-    setText("featured-position", `${featuredIndex + 1} / ${featured.length}`);
-    $("featured-controls").hidden = featured.length < 2;
+    const canBrowse = featured.length > 1;
+    $("featured-controls").hidden = !canBrowse;
+    $("featured-pagination").hidden = !canBrowse;
+    if (canBrowse) {
+        for (const [index, dot] of Array.from($("featured-dots").children).entries()) {
+            if (index === featuredIndex) dot.setAttribute("aria-current", "true");
+            else dot.removeAttribute("aria-current");
+        }
+        renderFeaturedPreview("previous-preview", -1);
+        renderFeaturedPreview("next-preview", 1);
+    } else {
+        $("previous-preview").hidden = true;
+        $("next-preview").hidden = true;
+    }
     $("featured").hidden = false;
+}
+
+function renderFeaturedPreview(id, offset) {
+    const preview = $(id);
+    const { art } = featured[(featuredIndex + offset + featured.length) % featured.length];
+    preview.replaceChildren();
+    preview.hidden = !art;
+    if (!art) return;
+    const image = element("img");
+    image.alt = "";
+    image.src = `/assets/films/${art.poster}`;
+    image.addEventListener("error", () => image.remove(), { once: true });
+    preview.append(image);
+}
+
+function setupFeaturedDots() {
+    $("featured-dots").replaceChildren(...featured.map((film, index) => {
+        const dot = element("button", null, "hero-dot");
+        dot.type = "button";
+        dot.setAttribute("aria-label", `Banner ${index + 1}: ${film.title}`);
+        dot.addEventListener("click", () => {
+            setFeaturedPlaying(false);
+            featuredIndex = index;
+            renderFeatured();
+        });
+        return dot;
+    }));
 }
 
 function moveFeatured(offset) {
@@ -174,17 +238,66 @@ function moveFeatured(offset) {
     renderFeatured();
 }
 
+function setFeaturedPlaying(playing) {
+    featuredPlaying = playing;
+    syncFeaturedMotion();
+}
+
+function syncFeaturedMotion() {
+    clearInterval(featuredTimer);
+    setText("featured-motion", featuredPlaying ? "Tạm dừng" : "Phát banner");
+    $("featured-copy").setAttribute("aria-live", featuredPlaying ? "off" : "polite");
+    if (!featuredPlaying || featured.length < 2 || $("catalog").hidden || document.hidden) return;
+    featuredTimer = setInterval(() => {
+        if (!$("featured").matches(":hover")) moveFeatured(1);
+    }, 7000);
+}
+
 function option(value, label) {
     return new Option(label, value);
 }
 
+function setQuickOptions(id, placeholder, options) {
+    const select = $(id);
+    select.replaceChildren(option("", placeholder), ...options);
+    select.disabled = options.length === 0;
+}
+
+function quickFilmScreenings() {
+    return movies.find((movie) => movie.key === $("quick-film").value)?.screenings ?? [];
+}
+
+function roomKey(slot) {
+    return slot.auditorium_id ?? slot.auditorium;
+}
+
+function quickRoomScreenings() {
+    return quickFilmScreenings().filter((slot) => roomKey(slot) === $("quick-room").value);
+}
+
+function updateQuickRooms() {
+    const rooms = new Map(quickFilmScreenings().map((slot) => [roomKey(slot), slot.auditorium]));
+    setQuickOptions("quick-room", "Chọn phòng", [...rooms].map(([key, label]) => option(key, label)));
+    if (rooms.size === 1) $("quick-room").selectedIndex = 1;
+    updateQuickDates();
+}
+
+function updateQuickDates() {
+    const dates = new Map(quickRoomScreenings().map((slot) => [
+        dateLabel(slot.starts_at), formatShortDate.format(new Date(slot.starts_at)),
+    ]));
+    setQuickOptions("quick-date", "Chọn ngày", [...dates].map(([key, label]) => option(key, label)));
+    updateQuickScreenings();
+}
+
 function updateQuickScreenings() {
-    const film = movies.find((movie) => movie.key === $("quick-film").value);
-    const options = film.screenings.map((slot) => {
-        const date = formatShortDate.format(new Date(slot.starts_at));
-        return option(slot.id, `${shortTime(slot.starts_at)} · ${date} · ${slot.auditorium}`);
-    });
-    $("quick-screening").replaceChildren(...options);
+    const slots = quickRoomScreenings().filter((slot) => dateLabel(slot.starts_at) === $("quick-date").value);
+    setQuickOptions("quick-screening", "Chọn suất", slots.map((slot) => option(slot.id, shortTime(slot.starts_at))));
+    updateQuickSubmit();
+}
+
+function updateQuickSubmit() {
+    $("quick-submit").disabled = !$("quick-screening").value;
 }
 
 function movieCard(movie, screenings) {
@@ -246,7 +359,7 @@ function renderSchedule() {
         if (slots.length) cards.push(movieCard(film, slots));
     }
     $("screenings").replaceChildren(...cards);
-    setText("movie-count", `${cards.length} phim · Suất chiếu demo`);
+    setText("movie-count", `${cards.length} phim`);
     $("catalog-state").hidden = cards.length > 0 || !movies.length;
     if (!cards.length && movies.length) setText("catalog-state", "Không tìm thấy phim phù hợp. Hãy đổi tên phim hoặc ngày chiếu.");
 }
@@ -268,44 +381,62 @@ async function loadCatalog() {
         renderSchedule();
         $("movie-count").hidden = !movies.length;
         $("dat-ve").hidden = !movies.length;
-        $("home-nav").querySelector(".primary").href = movies.length ? "#dat-ve" : "#lich-chieu";
+        $("quick-book-link").href = movies.length ? "#dat-ve" : "#lich-chieu";
         if (!movies.length) {
             setText("catalog-state", "Hiện chưa có suất chiếu sắp tới.");
             $("catalog-state").hidden = false;
             $("featured").hidden = true;
+            featured = [];
+            syncFeaturedMotion();
             return;
         }
         featured = featuredMovies.map((id) => movies.find((movie) => movie.art?.id === id)).filter(Boolean);
         if (!featured.length) featured = movies.slice(0, 6);
         featuredIndex = 0;
+        setupFeaturedDots();
         renderFeatured();
-        $("quick-film").replaceChildren(...movies.map((movie) => option(movie.key, movie.title)));
-        $("quick-film").value = featured[0].key;
-        updateQuickScreenings();
+        syncFeaturedMotion();
+        setQuickOptions("quick-film", "Chọn phim", movies.map((movie) => option(movie.key, movie.title)));
+        updateQuickRooms();
         $("catalog-state").hidden = true;
     } catch (error) {
         setText("catalog-state", error.message);
-        $("home-nav").querySelector(".primary").href = "#lich-chieu";
+        $("quick-book-link").href = "#lich-chieu";
         $("reload-catalog").hidden = false;
     }
     if (location.hash === "#lich-chieu") $("lich-chieu").scrollIntoView();
 }
 
-$("previous-film").addEventListener("click", () => moveFeatured(-1));
-$("next-film").addEventListener("click", () => moveFeatured(1));
+$("previous-film").addEventListener("click", () => {
+    setFeaturedPlaying(false);
+    moveFeatured(-1);
+});
+$("next-film").addEventListener("click", () => {
+    setFeaturedPlaying(false);
+    moveFeatured(1);
+});
+$("featured-motion").addEventListener("click", () => setFeaturedPlaying(!featuredPlaying));
+$("featured").addEventListener("focusin", (event) => {
+    if (event.target !== $("featured-motion")) setFeaturedPlaying(false);
+});
+document.addEventListener("visibilitychange", syncFeaturedMotion);
+reducedMotion.addEventListener("change", () => setFeaturedPlaying(!reducedMotion.matches));
 $("featured-book").addEventListener("click", () => {
     $("quick-film").value = featured[featuredIndex].key;
-    updateQuickScreenings();
+    updateQuickRooms();
     $("dat-ve").scrollIntoView();
-    $("quick-screening").focus({ preventScroll: true });
+    const nextField = $("quick-room").value ? $("quick-date") : $("quick-room");
+    nextField.focus({ preventScroll: true });
 });
-$("quick-film").addEventListener("change", updateQuickScreenings);
+$("quick-film").addEventListener("change", updateQuickRooms);
+$("quick-room").addEventListener("change", updateQuickDates);
+$("quick-date").addEventListener("change", updateQuickScreenings);
+$("quick-screening").addEventListener("change", updateQuickSubmit);
 $("schedule-date").addEventListener("change", renderSchedule);
 $("movie-search").addEventListener("input", renderSchedule);
 $("dat-ve").addEventListener("submit", (event) => {
     event.preventDefault();
-    const film = movies.find((movie) => movie.key === $("quick-film").value);
-    const slot = film?.screenings.find((item) => item.id === $("quick-screening").value);
+    const slot = quickRoomScreenings().find((item) => item.id === $("quick-screening").value);
     if (slot) openScreening(slot, event.submitter || $("quick-screening"));
 });
 $("reload-catalog").addEventListener("click", loadCatalog);
@@ -314,6 +445,23 @@ function stopSeatUpdates() {
     clearInterval(seatRefresh);
     seatEvents?.close();
     screening = null;
+}
+
+function renderBookingPoster(id, filmKey) {
+    const container = $(id);
+    const poster = filmArt.get(filmKey)?.poster ?? "";
+    if (container.dataset.poster === poster) return;
+    container.dataset.poster = poster;
+    container.replaceChildren();
+    container.hidden = !poster;
+    if (!poster) return;
+    const image = element("img");
+    image.alt = "";
+    image.src = `/assets/films/${poster}`;
+    image.addEventListener("error", () => {
+        if (image.parentNode === container) container.hidden = true;
+    }, { once: true });
+    container.append(image);
 }
 
 function openScreening(slot, origin) {
@@ -329,9 +477,10 @@ function openScreening(slot, origin) {
     setText("seat-availability", "");
     setText("movie-title", slot.title);
     setText("movie-details", screeningLabel(slot));
+    renderBookingPoster("seating-poster", slot.movie_id ?? slot.title);
     show("seating");
     window.scrollTo(0, 0);
-    $("movie-title").focus({ preventScroll: true });
+    $("seating-heading").focus({ preventScroll: true });
     renderSelection();
     notice();
     void refreshSeats();
@@ -427,7 +576,7 @@ function renderSeats(seats) {
     }
     if (focus) {
         const button = $("seats").querySelector(`[data-seat="${focus}"]:not(:disabled)`);
-        (button || $("seats").querySelector(".seat:not(:disabled)") || $("movie-title")).focus();
+        (button || $("seats").querySelector(".seat:not(:disabled)") || $("seating-heading")).focus();
     }
     renderSelection();
 }
@@ -452,17 +601,10 @@ $("checkout").addEventListener("submit", async (event) => {
     notice();
     try {
         const result = await post("/api/checkout", payload, requestKey("checkout", payload));
-        bookingId = result.booking.id;
-        history.replaceState(null, "", `?booking=${encodeURIComponent(bookingId)}`);
         sessionStorage.removeItem("checkout");
         stopSeatUpdates();
-        setBooking(result.booking);
         payment = result.payment;
-        show("order");
-        renderOrder();
-        window.scrollTo(0, 0);
-        $("order-heading").focus({ preventScroll: true });
-        void refreshOrder();
+        openOrder(result.booking);
     } catch (error) {
         pendingCheckout = !error.status || error.status >= 500;
         notice(pendingCheckout ? `${error.message} Bấm “Thử giữ ghế lại” để tiếp tục yêu cầu.` : error.message);
@@ -494,13 +636,24 @@ function setBooking(value) {
     clockOffset = Date.parse(value.server_now) - Date.now();
 }
 
-function ticketCard(ticket) {
+function openOrder(value) {
+    bookingId = value.id;
+    history.replaceState(null, "", orderUrl(bookingId));
+    setBooking(value);
+    show("order");
+    renderOrder();
+    window.scrollTo(0, 0);
+    $("order-heading").focus({ preventScroll: true });
+    void refreshOrder();
+}
+
+function ticketCard(ticket, details, showLink = true) {
     const card = element("article", null, "ticket");
     const info = element("div", null, "ticket-info");
     info.append(
         element("p", `Ghế ${ticket.seat}`, "ticket-seat"),
-        element("h2", booking.movie_title),
-        element("p", screeningLabel(booking)),
+        element(showLink ? "h2" : "h3", details.movie_title),
+        element("p", screeningLabel(details)),
     );
     if (ticket.customer_name) info.append(element("p", ticket.customer_name, "ticket-holder"));
     const code = element("div", null, "ticket-code");
@@ -510,12 +663,23 @@ function ticketCard(ticket) {
     qr.width = 128;
     qr.height = 128;
     qr.src = `${path}/qr.svg`;
-    const link = element("a", "Tra cứu vé");
-    link.href = path;
-    link.setAttribute("aria-label", `Tra cứu vé ghế ${ticket.seat}`);
-    code.append(qr, link);
+    code.append(qr);
+    if (showLink) {
+        const link = element("a", "Chi tiết vé");
+        link.href = `/?view=tickets&ticket=${encodeURIComponent(ticket.code)}`;
+        link.setAttribute("aria-label", `Chi tiết vé ghế ${ticket.seat}`);
+        code.append(link);
+    }
     card.append(info, code);
     return card;
+}
+
+function renderOrderAccess() {
+    const saved = booking.saved;
+    $("order-access").hidden = false;
+    $("save-order").hidden = saved;
+    $("order-saved").hidden = !saved;
+    setText("order-code", booking.id);
 }
 
 function renderOrder() {
@@ -534,6 +698,7 @@ function renderOrder() {
     if (confirmed) setText("order-intro", `${tickets.length} vé điện tử · Đặt vé thành công`);
     setText("order-title", booking.movie_title);
     setText("order-details", screeningLabel(booking));
+    renderBookingPoster("order-poster", booking.movie_title);
     setText("order-seats", booking.seats.join(", "));
     setText("amount", formatPrice.format(booking.amount));
     const status = $("payment-status");
@@ -542,10 +707,11 @@ function renderOrder() {
     setText("payment-status", state === "EXPIRED" ? "Đơn đã hết hạn giữ ghế." : paymentLabels[state] || "Đang tải trạng thái thanh toán…");
     $("simulate").hidden = booking.status !== "HELD" || !["PENDING", "DECLINED"].includes(payment?.status);
     updateTimer();
+    renderOrderAccess();
     const signature = tickets.map((ticket) => ticket.code).join(",");
     if (signature !== shownTickets) {
         shownTickets = signature;
-        $("tickets").replaceChildren(...tickets.map(ticketCard));
+        $("tickets").replaceChildren(...tickets.map((ticket) => ticketCard(ticket, booking)));
     }
 }
 
@@ -568,7 +734,7 @@ async function refreshOrder() {
         $("reload-order").hidden = true;
     } catch (error) {
         missingOrder = !booking && [404, 422].includes(error.status);
-        if (missingOrder) setText("order-intro", "Không tìm thấy đơn. Bạn có thể quay lại lịch chiếu.");
+        if (missingOrder) setText("order-intro", "Không mở được đơn. Hãy kiểm tra mã hoặc đăng nhập bằng tài khoản đã đặt.");
         $("reload-order").hidden = missingOrder;
         notice(missingOrder ? "" : error.message);
     } finally {
@@ -601,11 +767,241 @@ $("simulate").addEventListener("submit", async (event) => {
 
 $("reload-order").addEventListener("click", refreshOrder);
 
+$("save-order").addEventListener("click", async () => {
+    const button = $("save-order");
+    button.disabled = true;
+    try {
+        await api(`/api/my-bookings/${encodeURIComponent(booking.id)}`, { method: "PUT" });
+        booking.saved = true;
+        renderOrderAccess();
+        $("copy-order").focus();
+        report("order-access-status");
+    } catch (error) {
+        report("order-access-status", error.message);
+    } finally {
+        button.disabled = false;
+    }
+});
+
+$("copy-order").addEventListener("click", async () => {
+    try {
+        await navigator.clipboard.writeText(booking.id);
+        report("order-access-status", "Đã sao chép mã đơn.");
+    } catch {
+        report("order-access-status", "Hãy chọn và sao chép mã đơn ở trên.");
+    }
+});
+
+function savedOrderRow(order) {
+    const row = element("li", null, "history-row");
+    const info = element("div", null, "history-info");
+    const state = element("span", bookingLabels[order.status] || "Kiểm tra trạng thái", "history-state");
+    state.dataset.state = order.status;
+    info.append(
+        state,
+        element("h3", order.movie_title),
+        element("p", screeningLabel(order), "muted"),
+        element("p", `Ghế ${order.seats.join(", ")}`, "history-seats"),
+    );
+    const actions = element("div", null, "history-actions");
+    const link = element("a", order.status === "CONFIRMED" ? "Xem vé" : "Mở đơn", "button secondary history-open");
+    link.href = orderUrl(order.id);
+    const remove = element("button", "Bỏ lưu", "history-remove");
+    remove.type = "button";
+    remove.setAttribute("aria-label", `Bỏ lưu đơn ${order.movie_title}, ghế ${order.seats.join(", ")}`);
+    remove.addEventListener("click", async () => {
+        remove.disabled = true;
+        try {
+            await api(`/api/my-bookings/${encodeURIComponent(order.id)}`, { method: "DELETE" });
+            row.remove();
+            $("saved-orders-empty").hidden = $("saved-orders-list").childElementCount > 0;
+            ($("saved-orders-list").querySelector(".history-open") || $("lookup-code")).focus();
+            report("history-status", "Đã bỏ lưu đơn.");
+        } catch (error) {
+            report("history-status", error.message);
+        } finally {
+            remove.disabled = false;
+        }
+    });
+    actions.append(link, remove);
+    row.append(info, actions);
+    return row;
+}
+
+async function loadSavedOrders() {
+    $("reload-history").hidden = true;
+    report("history-status", "Đang tải đơn đã lưu…");
+    try {
+        const { scope, bookings: orders } = await api("/api/my-bookings");
+        const signedIn = scope === "account";
+        setText("saved-orders-scope", signedIn
+            ? "Các đơn được đồng bộ theo tài khoản của bạn."
+            : "Các đơn đặt với vai trò khách gắn với trình duyệt này.");
+        $("saved-orders-scope").hidden = false;
+        $("history-sign-in").hidden = signedIn;
+        $("saved-orders-list").replaceChildren(...orders.map(savedOrderRow));
+        $("saved-orders-empty").hidden = orders.length > 0;
+        report("history-status");
+    } catch (error) {
+        $("reload-history").hidden = false;
+        report("history-status", error.message);
+    }
+}
+
+$("reload-history").addEventListener("click", loadSavedOrders);
+
+async function lookupCode(rawCode, ticketOnly = false) {
+    const code = rawCode.trim().toLowerCase();
+    const input = $("lookup-code");
+    input.value = rawCode.trim();
+    if (!/^[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}$/.test(code)) {
+        report("lookup-status", "Mã chưa đúng định dạng. Hãy sao chép đủ mã đơn hoặc mã vé.", "ERROR");
+        input.setAttribute("aria-invalid", "true");
+        return;
+    }
+
+    $("lookup-submit").disabled = true;
+    report("lookup-status", "Đang tra cứu…");
+    try {
+        if (!ticketOnly) {
+            const order = await api(`/api/bookings/${code}`).catch((error) => {
+                if (error.status === 404) return null;
+                throw error;
+            });
+            if (order) {
+                openOrder(order);
+                return;
+            }
+        }
+        const ticket = await api(`/api/tickets/${code}`);
+        $("lookup-ticket").replaceChildren(ticketCard(ticket, ticket, false));
+        setText("lookup-ticket-code", ticket.code);
+        $("lookup-result").hidden = false;
+        report("lookup-status");
+        $("lookup-result").focus();
+    } catch (error) {
+        const message = error.status === 404
+            ? "Không tìm thấy đơn hoặc vé với mã này. Với đơn theo tài khoản, hãy đăng nhập bằng tài khoản đã đặt."
+            : error.message;
+        report("lookup-status", message, "ERROR");
+    } finally {
+        $("lookup-submit").disabled = false;
+    }
+}
+
+$("lookup-code").addEventListener("input", () => {
+    $("lookup-code").removeAttribute("aria-invalid");
+    report("lookup-status");
+});
+
+function configureSignIn() {
+    if (!signingUp) return;
+    setText("auth-form-title", "Tạo tài khoản");
+    setText("auth-submit", "Đăng ký");
+    setText("auth-mode-link", "Đã có tài khoản? Đăng nhập");
+    $("auth-mode-link").href = "/?view=account";
+    $("username-help").hidden = false;
+    $("password-help").hidden = false;
+    $("username").setAttribute("aria-describedby", "username-help");
+    $("password").setAttribute("aria-describedby", "password-help");
+    $("password").autocomplete = "new-password";
+    $("password").minLength = 15;
+}
+
+async function loadAccount() {
+    const showingAccount = !$("account").hidden;
+    if (showingAccount) {
+        $("reload-account").hidden = true;
+        report("account-status", "Đang tải thông tin tài khoản…");
+    }
+    try {
+        const { account } = await api("/api/auth/session");
+        setText("account-link", account ? "Tài khoản" : "Đăng nhập");
+        if (showingAccount) {
+            $("sign-in").hidden = Boolean(account);
+            $("account-profile").hidden = !account;
+            if (account) setText("account-username", account.username);
+            report("account-status");
+        }
+    } catch (error) {
+        if (showingAccount) {
+            $("reload-account").hidden = false;
+            report("account-status", error.message);
+        }
+    }
+}
+
+function accountChanged() {
+    try {
+        sessionStorage.removeItem("checkout");
+    } catch {
+        // Signing in still works in browsers that block web storage.
+    }
+}
+
+accountUpdates?.addEventListener("message", () => {
+    accountChanged();
+    location.reload();
+});
+
+$("sign-in").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const button = $("auth-submit");
+    button.disabled = true;
+    report("auth-status", signingUp ? "Đang tạo tài khoản…" : "Đang đăng nhập…");
+    try {
+        await api(`/api/auth/${signingUp ? "register" : "login"}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ username: $("username").value, password: $("password").value }),
+        });
+        accountChanged();
+        accountUpdates?.postMessage("changed");
+        location.replace("/?view=tickets");
+    } catch (error) {
+        const message = error.status === 422 ? "Hãy kiểm tra định dạng tên đăng nhập và độ dài mật khẩu." : error.message;
+        report("auth-status", message, "ERROR");
+        button.disabled = false;
+    }
+});
+
+$("sign-out").addEventListener("click", async () => {
+    const button = $("sign-out");
+    button.disabled = true;
+    report("logout-status", "Đang đăng xuất…");
+    try {
+        await api("/api/auth/logout", { method: "POST" });
+        accountChanged();
+        accountUpdates?.postMessage("changed");
+        location.replace("/?view=account");
+    } catch (error) {
+        report("logout-status", error.message, "ERROR");
+        button.disabled = false;
+    }
+});
+
+$("reload-account").addEventListener("click", loadAccount);
+
+window.addEventListener("pageshow", (event) => {
+    if (event.persisted && (bookingId || page.has("view"))) location.reload();
+});
+
 if (bookingId) {
     show("order");
     void refreshOrder();
+} else if (page.get("view") === "tickets") {
+    show("my-tickets");
+    void loadSavedOrders();
+    const ticket = page.get("ticket");
+    const code = page.get("code");
+    if (ticket) void lookupCode(ticket, true);
+    else if (code) void lookupCode(code);
+} else if (page.get("view") === "account") {
+    show("account");
+    configureSignIn();
 } else {
     void loadCatalog();
 }
+void loadAccount();
 setInterval(refreshOrder, 1500);
 setInterval(updateTimer, 500);

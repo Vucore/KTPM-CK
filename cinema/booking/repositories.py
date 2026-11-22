@@ -84,9 +84,9 @@ class BookingRepository:
             """
             INSERT INTO cinema_booking.bookings
                 (id, request_key, request_hash, screening_id, movie_title, starts_at, auditorium,
-                 seats, customer_name, amount, status, expires_at)
+                 seats, customer_name, amount, status, expires_at, account_id)
             VALUES (%(id)s, %(request_key)s, %(request_hash)s, %(screening_id)s, %(movie_title)s, %(starts_at)s,
-                    %(auditorium)s, %(seats)s, %(customer_name)s, %(amount)s, 'HELD', %(expires_at)s)
+                    %(auditorium)s, %(seats)s, %(customer_name)s, %(amount)s, 'HELD', %(expires_at)s, %(account_id)s)
         """,
             booking,
         )
@@ -119,17 +119,52 @@ class BookingRepository:
             (payment_id, booking_id),
         )
 
-    def detail(self, connection, booking_id):
+    def detail(self, connection, booking_id, viewer):
         return connection.execute(
             """
             SELECT id, screening_id, movie_title, starts_at, auditorium, seats, customer_name, amount, expires_at,
                    statement_timestamp() AS server_now,
                    CASE WHEN status = 'HELD' AND expires_at <= statement_timestamp()
-                        THEN 'EXPIRED' ELSE status END AS status
-            FROM cinema_booking.bookings WHERE id = %s
+                        THEN 'EXPIRED' ELSE status END AS status,
+                   EXISTS (SELECT 1 FROM cinema_booking.saved_bookings AS saved
+                           WHERE saved.owner_key = %s AND saved.booking_id = booking.id) AS saved
+            FROM cinema_booking.bookings AS booking
+            WHERE id = %s AND (account_id IS NULL OR account_id = %s)
         """,
-            (booking_id,),
+            (viewer.history_key, booking_id, viewer.account_id),
         ).fetchone()
+
+    def saved_list(self, connection, viewer):
+        return connection.execute(
+            """
+            SELECT booking.id, booking.movie_title, booking.starts_at, booking.auditorium, booking.seats,
+                   CASE WHEN booking.status = 'HELD' AND booking.expires_at <= statement_timestamp()
+                        THEN 'EXPIRED' ELSE booking.status END AS status
+            FROM cinema_booking.saved_bookings AS saved
+            JOIN cinema_booking.bookings AS booking ON booking.id = saved.booking_id
+            WHERE saved.owner_key = %s AND (booking.account_id IS NULL OR booking.account_id = %s)
+            ORDER BY saved.saved_at DESC, saved.booking_id
+            """,
+            (viewer.history_key, viewer.account_id),
+        ).fetchall()
+
+    def save(self, connection, history_key, booking_id):
+        connection.execute(
+            """
+            INSERT INTO cinema_booking.saved_bookings (owner_key, booking_id)
+            VALUES (%s, %s)
+            ON CONFLICT (owner_key, booking_id) DO NOTHING
+            """,
+            (history_key, booking_id),
+        )
+
+    def forget(self, connection, history_key, booking_id):
+        connection.execute(
+            """
+            DELETE FROM cinema_booking.saved_bookings WHERE owner_key = %s AND booking_id = %s
+            """,
+            (history_key, booking_id),
+        )
 
 
 class TicketRepository:

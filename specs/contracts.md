@@ -4,16 +4,35 @@ Booking phục vụ trang web và API công khai của bản demo. Mã đơn và
 
 | REST | Đầu vào / kết quả |
 |---|---|
+| Cả ba dịch vụ `GET /health` | Trả `{"status":"ok"}` nếu dịch vụ kết nối được PostgreSQL. |
 | Catalog `GET /screenings`, `GET /screenings/{id}` | Danh sách suất tương lai hoặc chi tiết suất kèm ghế. Mỗi suất có `movie_id` để giao diện nhóm các suất của cùng phim. |
 | Booking `GET /api/screenings`, `GET /api/screenings/{id}/seats` | Danh sách suất và sơ đồ ghế theo trạng thái. |
 | Booking `GET /api/screenings/{id}/updates` | SSE báo thay đổi sau khi một đơn của suất được xác nhận. |
 | Booking `POST /api/checkout` | Nhận suất, danh sách ghế và tên tùy chọn. Trả 201 cùng `booking` và `payment`. |
-| Booking `GET /api/bookings/{id}`, `GET /api/bookings/{id}/payment` | Đọc đơn kèm vé hoặc phiên thanh toán. |
-| Booking `POST /api/bookings/{id}/payment/simulate` | Nhận `outcome` và `delay_seconds` từ 0–120. Trả 202. |
+| Booking `GET /api/bookings/{id}`, `GET /api/bookings/{id}/payment` | Đọc đơn kèm vé hoặc phiên thanh toán. Đơn trả `expires_at`, `server_now` và cờ `saved` cho phiên hiện tại. |
+| Booking `POST /api/bookings/{id}/payment/simulate` | Nhận `outcome` là `success` hoặc `decline` và `delay_seconds` từ 0–120, mặc định 0. Mã 202 cho biết yêu cầu đã được nhận. Kết quả đọc từ API phiên thanh toán và API đơn. |
 | Booking `GET /api/tickets/{code}`, `GET /api/tickets/{code}/qr.svg` | Thông tin vé hoặc mã QR dạng SVG. |
 | Payment `POST /payments`, `GET /payments/{booking_id}`, `POST /payments/{booking_id}/simulate` | API nội bộ dùng để tạo, truy vấn và giả lập thanh toán. Tạo phiên theo mã đơn và số tiền Booking cung cấp. |
+| Booking `POST /api/auth/register`, `POST /api/auth/login` | Nhận JSON gồm `username` và `password`. Trả thông tin tài khoản và đặt cookie phiên. Sai thông tin đăng nhập trả 401. Tên trùng khi đăng ký trả 409. |
+| Booking `GET /api/auth/session`, `POST /api/auth/logout` | Đọc `account` của phiên hiện tại hoặc `null`. Đăng xuất thu hồi phiên và trả 204. |
+| Booking `GET /api/my-bookings` | Trả `scope` là `account` hoặc `browser` cùng danh sách `bookings` của phiên đó. |
+| Booking `PUT /api/my-bookings/{id}`, `DELETE /api/my-bookings/{id}` | Lưu đơn được phép xem hoặc bỏ lưu khỏi danh sách hiện tại. Thành công trả 204. |
 
-Checkout và simulate yêu cầu `Idempotency-Key` là UUID. Gửi lại cùng khóa và dữ liệu sau timeout để tiếp tục đơn hoặc lượt thanh toán cũ. Dùng khóa mới cho thao tác mới. Ví dụ checkout `{"screening_id":"saigon-evening","seats":["A1","A2"],"customer_name":"Minh"}`. Ví dụ giả lập `{"outcome":"success","delay_seconds":0}`.
+Quyền truy cập API đơn, thanh toán và lịch sử tuân theo [đặc tả tài khoản](accounts.md). Với đơn thuộc tài khoản, API trả 404 cho phiên không có quyền mở đơn.
+
+Checkout và simulate yêu cầu `Idempotency-Key` là UUID. Gửi lại cùng khóa và dữ liệu sau timeout để tiếp tục đơn hoặc lượt thanh toán cũ. Dùng khóa mới cho thao tác mới. Gửi lại cùng khóa với dữ liệu khác trả 409.
+
+Ví dụ nội dung JSON của checkout với một suất có trong kết quả `GET /api/screenings`.
+
+```json
+{"screening_id":"saigon-evening","seats":["A1","A2"],"customer_name":"Minh"}
+```
+
+Ví dụ nội dung JSON của yêu cầu thanh toán giả lập.
+
+```json
+{"outcome":"success","delay_seconds":0}
+```
 
 Mã lỗi chính gồm 404 khi đối tượng không tồn tại, 409 khi ghế bận hoặc yêu cầu xung đột, 422 khi đầu vào sai và 503 khi phụ thuộc tạm gián đoạn.
 

@@ -3,10 +3,10 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="theme-color" content="#f7f4ee">
+    <meta name="theme-color" content="#ffffff">
     <title>Chọn Suất · Đặt vé xem phim</title>
-    <link rel="stylesheet" href="/assets/style.css">
-    <script type="module" src="/assets/app.js"></script>
+    <link rel="stylesheet" href="/assets/style.css?v=3">
+    <script type="module" src="/assets/app.js?v=3"></script>
 </head>
 <body>
     <a class="skip" href="#main">Đến nội dung chính</a>
@@ -16,52 +16,73 @@
                 <span class="brand-mark" aria-hidden="true"></span>
                 <span>Chọn Suất<span class="brand-dot">.</span></span>
             </a>
-            <nav id="home-nav" aria-label="Điều hướng chính">
-                <a class="nav-link" href="#lich-chieu">Phim &amp; lịch chiếu</a>
-                <a class="button primary" href="#dat-ve">Đặt vé <span class="arrow" aria-hidden="true"></span></a>
+            <div class="header-actions">
+                <a id="quick-book-link" class="button primary" href="#dat-ve">Mua vé <span class="arrow" aria-hidden="true"></span></a>
+                <a id="schedule-link" class="nav-link" href="/#lich-chieu">Phim &amp; lịch chiếu</a>
+            </div>
+            <nav class="site-nav" aria-label="Tài khoản và vé">
+                <a id="ticket-history-link" class="nav-link" href="/?view=tickets">Vé của tôi</a>
+                <a id="account-link" class="nav-link" href="/?view=account">Đăng nhập</a>
             </nav>
-            <a id="flow-nav" class="nav-link" href="/" hidden>Về lịch chiếu</a>
         </div>
     </header>
 
     <main id="main" tabindex="-1">
         <section id="catalog" aria-label="Phim và lịch chiếu">
             <section class="hero" id="featured" aria-labelledby="featured-title" hidden>
-                <div id="featured-visual" aria-hidden="true"></div>
-                <div class="wrap hero-inner">
+                <div id="previous-preview" class="hero-preview previous" aria-hidden="true" hidden></div>
+                <div id="next-preview" class="hero-preview next" aria-hidden="true" hidden></div>
+                <div class="hero-inner">
+                    <div id="featured-visual" aria-hidden="true"></div>
                     <div class="hero-copy" id="featured-copy" aria-live="polite">
                         <h1 id="featured-title"></h1>
                         <p class="hero-meta" id="featured-meta"></p>
-                        <p class="hero-synopsis" id="featured-synopsis"></p>
-                        <button class="button primary" id="featured-book" type="button">Chọn suất chiếu <span class="arrow" aria-hidden="true"></span></button>
+                        <button class="button hero-book" id="featured-book" type="button">Xem suất chiếu <span class="arrow" aria-hidden="true"></span></button>
                     </div>
-                    <div id="featured-controls" class="hero-controls" aria-label="Đổi phim nổi bật" hidden>
-                        <button id="previous-film" class="icon-button" type="button" aria-label="Phim trước"><span class="arrow left" aria-hidden="true"></span></button>
-                        <span id="featured-position" class="hero-position" aria-hidden="true"></span>
-                        <button id="next-film" class="icon-button" type="button" aria-label="Phim tiếp theo"><span class="arrow" aria-hidden="true"></span></button>
+                    <div id="featured-pagination" class="hero-pagination" hidden>
+                        <div id="featured-dots" class="hero-dots" role="group" aria-label="Chọn banner phim"></div>
+                        <button id="featured-motion" class="hero-motion" type="button">Tạm dừng</button>
                     </div>
+                </div>
+                <div id="featured-controls" class="hero-controls" role="group" aria-label="Đổi phim nổi bật" hidden>
+                    <button id="previous-film" class="icon-button" type="button" aria-label="Phim trước"><span class="arrow left" aria-hidden="true"></span></button>
+                    <button id="next-film" class="icon-button" type="button" aria-label="Phim tiếp theo"><span class="arrow" aria-hidden="true"></span></button>
                 </div>
             </section>
 
             <div class="wrap catalog-body">
-                <form id="dat-ve" class="quick-book" aria-labelledby="quick-title" hidden>
-                    <h2 id="quick-title"><span class="brand-mark quick-mark" aria-hidden="true"></span>Đặt vé nhanh</h2>
-                    <div class="field">
-                        <label for="quick-film">Phim</label>
+                <form id="dat-ve" class="quick-book" aria-label="Mua vé nhanh" hidden>
+                    <div class="quick-field">
+                        <span class="quick-number" aria-hidden="true">1</span>
+                        <label class="visually-hidden" for="quick-film">Chọn phim</label>
                         <select id="quick-film" required></select>
                     </div>
-                    <div class="field">
-                        <label for="quick-screening">Suất chiếu</label>
-                        <select id="quick-screening" required></select>
+                    <div class="quick-field">
+                        <span class="quick-number" aria-hidden="true">2</span>
+                        <label class="visually-hidden" for="quick-room">Chọn phòng</label>
+                        <select id="quick-room" required disabled></select>
                     </div>
-                    <button class="button primary" type="submit">Chọn ghế <span class="arrow" aria-hidden="true"></span></button>
+                    <div class="quick-field">
+                        <span class="quick-number" aria-hidden="true">3</span>
+                        <label class="visually-hidden" for="quick-date">Chọn ngày</label>
+                        <select id="quick-date" required disabled></select>
+                    </div>
+                    <div class="quick-field">
+                        <span class="quick-number" aria-hidden="true">4</span>
+                        <label class="visually-hidden" for="quick-screening">Chọn suất</label>
+                        <select id="quick-screening" required disabled></select>
+                    </div>
+                    <button id="quick-submit" class="button primary" type="submit" disabled>Chọn ghế <span class="arrow" aria-hidden="true"></span></button>
                 </form>
 
                 <section id="lich-chieu" class="schedule" aria-labelledby="schedule-title" tabindex="-1">
                     <div class="section-heading">
-                        <h2 id="schedule-title">Phim &amp; lịch chiếu</h2>
-                        <div class="schedule-tools">
+                        <div class="schedule-heading">
+                            <h2 id="schedule-title">Phim</h2>
+                            <span class="schedule-active">Đang chiếu</span>
                             <p id="movie-count" hidden></p>
+                        </div>
+                        <div class="schedule-tools">
                             <div class="schedule-filters" id="schedule-filters" hidden>
                                 <div class="schedule-filter">
                                     <label for="movie-search">Tìm phim</label>
@@ -81,19 +102,86 @@
             </div>
         </section>
 
+        <section id="my-tickets" class="wrap flow" aria-labelledby="my-tickets-title" hidden>
+            <div class="flow-heading">
+                <h1 id="my-tickets-title">Vé của tôi</h1>
+                <p class="muted">Mở lại đơn đã đặt hoặc tra cứu bằng mã đơn hay mã vé.</p>
+            </div>
+            <section id="lookup-result" class="lookup-result" aria-labelledby="lookup-result-title" tabindex="-1" hidden>
+                <h2 id="lookup-result-title">Vé điện tử</h2>
+                <div id="lookup-ticket" class="ticket-grid"></div>
+                <p class="lookup-reference">Mã vé <code id="lookup-ticket-code"></code></p>
+            </section>
+            <div class="flow-grid">
+                <section class="saved-orders" aria-labelledby="saved-orders-title">
+                    <h2 id="saved-orders-title">Đơn đã lưu</h2>
+                    <p id="saved-orders-scope" class="muted panel-note" hidden></p>
+                    <a id="history-sign-in" href="/?view=account" class="account-shortcut" hidden>Đăng nhập để lưu các đơn mới vào tài khoản</a>
+                    <p id="saved-orders-empty" class="history-empty" hidden>Chưa có đơn nào được lưu.</p>
+                    <ul id="saved-orders-list" class="history-list"></ul>
+                    <p id="history-status" class="panel-note" role="status" hidden></p>
+                    <button id="reload-history" class="button secondary" type="button" hidden>Tải lại danh sách</button>
+                </section>
+                <form id="ticket-lookup" class="panel" action="/" method="get" aria-labelledby="lookup-title">
+                    <h2 id="lookup-title">Tra cứu bằng mã</h2>
+                    <input type="hidden" name="view" value="tickets">
+                    <div class="field">
+                        <label for="lookup-code">Mã đơn hoặc mã vé</label>
+                        <input id="lookup-code" name="code" type="text" required maxlength="80"
+                            autocomplete="off" spellcheck="false" placeholder="Dán mã tại đây">
+                    </div>
+                    <button id="lookup-submit" class="button primary panel-action" type="submit">Tra cứu</button>
+                    <p id="lookup-status" class="payment-status" role="status" hidden></p>
+                </form>
+            </div>
+        </section>
+
+        <section id="account" class="wrap flow account-page" aria-labelledby="account-title" hidden>
+            <div class="flow-heading">
+                <h1 id="account-title">Tài khoản</h1>
+                <p class="muted">Đăng nhập để xem lại vé trên các thiết bị của bạn.</p>
+            </div>
+            <p id="account-status" class="panel-note" role="status">Đang tải thông tin tài khoản…</p>
+            <button id="reload-account" class="button secondary" type="button" hidden>Thử lại</button>
+            <form id="sign-in" class="panel" method="post" action="/api/auth/login" aria-labelledby="auth-form-title" hidden>
+                <h2 id="auth-form-title">Đăng nhập</h2>
+                <div class="field">
+                    <label for="username">Tên đăng nhập</label>
+                    <input id="username" name="username" type="text" required minlength="3" maxlength="32"
+                        autocomplete="username" autocapitalize="none" spellcheck="false">
+                    <p id="username-help" class="panel-note" hidden>Dùng 3–32 ký tự gồm chữ không dấu, số, dấu chấm, gạch dưới hoặc gạch ngang.</p>
+                </div>
+                <div class="field">
+                    <label for="password">Mật khẩu</label>
+                    <input id="password" name="password" type="password" required maxlength="128" autocomplete="current-password">
+                    <p id="password-help" class="panel-note" hidden>Dùng ít nhất 15 ký tự. Bạn có thể dùng một cụm từ dễ nhớ.</p>
+                </div>
+                <button id="auth-submit" class="button primary panel-action" type="submit">Đăng nhập</button>
+                <p id="auth-status" class="payment-status" role="status" hidden></p>
+                <a id="auth-mode-link" href="/?view=account&amp;mode=register">Tạo tài khoản</a>
+            </form>
+            <div id="account-profile" class="panel" hidden>
+                <h2 id="account-username"></h2>
+                <div class="account-actions">
+                    <a class="button primary" href="/?view=tickets">Xem Vé của tôi</a>
+                    <button id="sign-out" class="button secondary" type="button">Đăng xuất</button>
+                </div>
+                <p id="logout-status" class="payment-status" role="status" hidden></p>
+            </div>
+        </section>
+
         <div id="booking-flow" class="wrap flow" hidden>
-            <ol class="steps" aria-label="Tiến độ đặt vé">
-                <li id="step-seats"><span>1</span> Chọn ghế</li>
-                <li id="step-payment"><span>2</span> Thanh toán</li>
-                <li id="step-tickets"><span>3</span> Nhận vé</li>
+            <ol class="steps" role="list" aria-label="Tiến độ đặt vé">
+                <li id="step-seats">Chọn ghế</li>
+                <li id="step-payment">Thanh toán</li>
+                <li id="step-tickets">Nhận vé</li>
             </ol>
             <p id="notice" class="notice" role="status" hidden></p>
 
             <section id="seating" hidden>
                 <div class="flow-heading">
                     <button class="back" id="back" type="button"><span class="arrow left" aria-hidden="true"></span> Tất cả suất chiếu</button>
-                    <h1 id="movie-title" tabindex="-1"></h1>
-                    <p id="movie-details" class="muted"></p>
+                    <h1 id="seating-heading" tabindex="-1">Chọn ghế</h1>
                 </div>
                 <div class="flow-grid">
                     <div class="seat-panel">
@@ -110,9 +198,18 @@
                             <li><i class="unavailable" aria-hidden="true"></i> Hết chỗ</li>
                         </ul>
                     </div>
-                    <form id="checkout" class="panel">
-                        <h2>Ghế của bạn</h2>
-                        <div id="selection" class="selection" aria-live="polite">Chưa chọn ghế</div>
+                    <form id="checkout" class="panel booking-summary" aria-labelledby="movie-title">
+                        <div class="booking-film">
+                            <div id="seating-poster" class="booking-poster" aria-hidden="true" hidden></div>
+                            <div>
+                                <h2 id="movie-title"></h2>
+                                <p id="movie-details" class="muted"></p>
+                            </div>
+                        </div>
+                        <div class="selection-summary">
+                            <h3>Ghế đã chọn</h3>
+                            <div id="selection" class="selection" aria-live="polite">Chưa chọn ghế</div>
+                        </div>
                         <div class="field">
                             <label for="customer">Tên trên vé <small>(tùy chọn)</small></label>
                             <input id="customer" maxlength="80" autocomplete="name" placeholder="Nhập họ và tên">
@@ -129,10 +226,15 @@
                     <h1 id="order-heading" tabindex="-1">Thanh toán</h1>
                     <p id="order-intro" class="muted">Đang tải thông tin đơn đặt vé…</p>
                 </div>
-                <div id="order-tools" class="flow-grid">
-                    <article class="panel" id="order-summary" hidden>
-                        <h2 id="order-title"></h2>
-                        <p id="order-details" class="muted"></p>
+                <div id="order-tools" class="flow-grid payment-grid">
+                    <article class="panel booking-summary" id="order-summary" aria-labelledby="order-title" hidden>
+                        <div class="booking-film">
+                            <div id="order-poster" class="booking-poster" aria-hidden="true" hidden></div>
+                            <div>
+                                <h2 id="order-title"></h2>
+                                <p id="order-details" class="muted"></p>
+                            </div>
+                        </div>
                         <dl class="order-facts">
                             <div><dt>Ghế</dt><dd id="order-seats"></dd></div>
                             <div><dt>Tổng tiền</dt><dd id="amount" class="amount"></dd></div>
@@ -140,9 +242,8 @@
                         <p id="timer" class="timer" hidden></p>
                         <p id="payment-status" class="payment-status" role="status" hidden></p>
                     </article>
-                    <form id="simulate" class="panel" hidden>
-                        <h2>Thanh toán giả lập</h2>
-                        <p class="panel-note payment-note">Chọn kết quả mô phỏng cho đơn này.</p>
+                    <form id="simulate" class="panel" aria-labelledby="payment-options-title" hidden>
+                        <h2 id="payment-options-title">Thanh toán giả lập</h2>
                         <div class="field">
                             <label for="outcome">Kết quả giao dịch</label>
                             <select id="outcome">
@@ -160,6 +261,18 @@
                 <button class="button secondary" id="reload-order" type="button" hidden>Tải lại đơn</button>
                 <a class="button primary" id="retry-booking" href="/#lich-chieu" hidden>Chọn suất khác</a>
                 <div id="tickets" class="ticket-grid"></div>
+                <section id="order-access" class="order-access" aria-labelledby="order-access-title" hidden>
+                    <div>
+                        <h2 id="order-access-title">Mã đơn</h2>
+                        <code id="order-code"></code>
+                        <p id="order-saved" class="panel-note" hidden>Đã lưu trong Vé của tôi.</p>
+                        <p id="order-access-status" class="panel-note" role="status" hidden></p>
+                    </div>
+                    <div class="order-access-actions">
+                        <button id="save-order" class="button secondary" type="button">Lưu vào Vé của tôi</button>
+                        <button id="copy-order" class="button secondary" type="button">Sao chép mã</button>
+                    </div>
+                </section>
                 <a class="button secondary ticket-return" id="ticket-return" href="/#lich-chieu" hidden>Trở lại lịch chiếu <span class="arrow" aria-hidden="true"></span></a>
             </section>
         </div>
