@@ -98,7 +98,11 @@ class AuthService:
             if replacement:
                 self.accounts.update_password_hash(connection, account["id"], password_hash, replacement)
             token = self._start_session(connection, account["id"], previous)
-        return {"id": account["id"], "username": account["username"]}, token
+        return {
+            "id": account["id"],
+            "username": account["username"],
+            "role": account.get("role", "USER"),
+        }, token
 
     def _start_session(self, connection, account_id, previous):
         if previous:
@@ -132,6 +136,23 @@ class AuthService:
             updated = self.accounts.update_profile(
                 connection, account_id, data.full_name, data.email, data.phone, data.birth_date
             )
+            if not updated:
+                raise HTTPException(404, "Không tìm thấy tài khoản")
+            updated["tier"] = member_tier(updated["total_spent"])
+            return updated
+
+    def list_accounts(self):
+        with self.db.transaction() as connection:
+            rows = self.accounts.list_accounts(connection)
+            for row in rows:
+                row["tier"] = member_tier(row["total_spent"])
+            return rows
+
+    def update_role(self, actor_id: UUID, target_id: UUID, role: str):
+        if actor_id == target_id and role != "ADMIN":
+            raise HTTPException(409, "Bạn không thể tự hạ quyền Quản trị viên của chính mình.")
+        with self.db.transaction() as connection:
+            updated = self.accounts.update_role(connection, target_id, role)
             if not updated:
                 raise HTTPException(404, "Không tìm thấy tài khoản")
             updated["tier"] = member_tier(updated["total_spent"])

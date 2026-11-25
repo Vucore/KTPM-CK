@@ -180,6 +180,92 @@ class BookingRepository:
             (history_key, booking_id),
         )
 
+    def has_active_bookings_for_screening(self, connection, screening_id: str) -> bool:
+        row = connection.execute(
+            """
+            SELECT 1 FROM cinema_booking.bookings
+            WHERE screening_id = %s
+              AND (status = 'CONFIRMED' OR (status = 'HELD' AND expires_at > statement_timestamp()))
+            LIMIT 1
+            """,
+            (screening_id,),
+        ).fetchone()
+        return bool(row)
+
+    def admin_overview(self, connection):
+        kpi = connection.execute(
+            """
+            SELECT
+                COALESCE(SUM(amount) FILTER (WHERE status = 'CONFIRMED'), 0)::int AS total_revenue,
+                COALESCE(SUM(concessions_amount) FILTER (WHERE status = 'CONFIRMED'), 0)::int AS concessions_revenue,
+                COALESCE(SUM(discount_amount) FILTER (WHERE status = 'CONFIRMED'), 0)::int AS discount_total,
+                COUNT(*) FILTER (WHERE status = 'CONFIRMED')::int AS confirmed_bookings,
+                COUNT(*) FILTER (WHERE status = 'HELD' AND expires_at > statement_timestamp())::int AS held_bookings,
+                COUNT(*) FILTER (
+                    WHERE status = 'EXPIRED' OR (status = 'HELD' AND expires_at <= statement_timestamp())
+                )::int AS expired_bookings,
+                COUNT(*) FILTER (WHERE status = 'CANCELLED')::int AS cancelled_bookings,
+                (SELECT COUNT(*)::int FROM cinema_booking.tickets) AS tickets_sold,
+                (SELECT COUNT(*)::int FROM cinema_booking.tickets WHERE checked_in_at IS NOT NULL) AS tickets_checked_in,
+                (SELECT COUNT(*)::int FROM cinema_booking.accounts) AS total_members
+            FROM cinema_booking.bookings
+            """
+        ).fetchone()
+        by_movie = connection.execute(
+            """
+            SELECT movie_title,
+                   COUNT(*)::int AS bookings_count,
+                   COALESCE(SUM(cardinality(seats)), 0)::int AS seats_sold,
+                   COALESCE(SUM(amount), 0)::int AS revenue
+            FROM cinema_booking.bookings
+            WHERE status = 'CONFIRMED'
+            GROUP BY movie_title
+            ORDER BY revenue DESC, movie_title
+            """
+        ).fetchall()
+        by_cinema = connection.execute(
+            """
+            SELECT cinema_name,
+                   COUNT(*)::int AS bookings_count,
+                   COALESCE(SUM(cardinality(seats)), 0)::int AS seats_sold,
+                   COALESCE(SUM(amount), 0)::int AS revenue
+            FROM cinema_booking.bookings
+            WHERE status = 'CONFIRMED'
+            GROUP BY cinema_name
+            ORDER BY revenue DESC, cinema_name
+            """
+        ).fetchall()
+        return {"kpi": kpi, "by_movie": by_movie, "by_cinema": by_cinema}
+
+    def admin_bookings(self, connection, status_filter: str | None = None, query: str | None = None):
+        rows = connection.execute(
+            """
+            SELECT b.id, b.screening_id, b.movie_title, b.starts_at, b.auditorium,
+                   b.cinema_name, b.screening_format, b.seats, b.customer_name,
+                   b.amount, b.concessions_amount, b.discount_amount, b.promo_code,
+                   b.points_redeemed, a.username AS account_username,
+                   CASE WHEN b.status = 'HELD' AND b.expires_at <= statement_timestamp()
+                        THEN 'EXPIRED' ELSE b.status END AS status
+            FROM cinema_booking.bookings b
+            LEFT JOIN cinema_booking.accounts a ON a.id = b.account_id
+            ORDER BY b.starts_at DESC, b.id
+            LIMIT 100
+            """
+        ).fetchall()
+        if status_filter:
+            rows = [row for row in rows if row["status"] == status_filter]
+        if query:
+            needle = query.strip().lower()
+            rows = [
+                row
+                for row in rows
+                if needle in str(row["id"]).lower()
+                or needle in (row["movie_title"] or "").lower()
+                or needle in (row["customer_name"] or "").lower()
+                or needle in (row["account_username"] or "").lower()
+            ]
+        return rows
+
 
 class TicketRepository:
     def insert(self, connection, ticket):
@@ -194,7 +280,8 @@ class TicketRepository:
     def list(self, connection, booking_id):
         return connection.execute(
             """
-            SELECT code, seat, customer_name FROM cinema_booking.tickets WHERE booking_id = %s ORDER BY seat
+            SELECT code, seat, customer_name, checked_in_at
+            FROM cinema_booking.tickets WHERE booking_id = %s ORDER BY seat
         """,
             (booking_id,),
         ).fetchall()
@@ -202,9 +289,35 @@ class TicketRepository:
     def find(self, connection, code):
         return connection.execute(
             """
-            SELECT t.code, t.seat, b.movie_title, b.auditorium, b.cinema_name, b.screening_format, b.starts_at
+            SELECT t.code, t.seat, t.customer_name, t.checked_in_at,
+                   b.id AS booking_id, b.movie_title, b.auditorium, b.cinema_name,
+                   b.screening_format, b.starts_at
             FROM cinema_booking.tickets t JOIN cinema_booking.bookings b ON b.id = t.booking_id
             WHERE t.code = %s
         """,
             (code,),
+        ).fetchone()
+
+    def lock_ticket(self, connection, code):
+        return connection.execute(
+            """
+            SELECT t.code, t.seat, t.customer_name, t.checked_in_at,
+                   b.id AS booking_id, b.movie_title, b.auditorium, b.cinema_name,
+                   b.screening_format, b.starts_at
+            FROM cinema_booking.tickets t JOIN cinema_booking.bookings b ON b.id = t.booking_id
+            WHERE t.code = %s
+            FOR UPDATE OF t
+            """,
+            (code,),
+        ).fetchone()
+
+    def mark_checked_in(self, connection, code, staff_account_id):
+        return connection.execute(
+            """
+            UPDATE cinema_booking.tickets
+            SET checked_in_at = clock_timestamp(), checked_in_by = %s
+            WHERE code = %s
+            RETURNING checked_in_at
+            """,
+            (staff_account_id, code),
         ).fetchone()

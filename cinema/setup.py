@@ -4,8 +4,10 @@ import argparse
 import json
 import os
 from pathlib import Path
+from uuid import uuid4
 
 import psycopg
+from argon2 import PasswordHasher
 from dotenv import load_dotenv
 from psycopg import sql
 from psycopg.types.json import Jsonb
@@ -342,6 +344,27 @@ def seed(connection):
 
     seed_theatrical_films(connection)
     seed_dut_content(connection)
+    seed_admin_accounts(connection)
+
+
+def seed_admin_accounts(connection):
+    hasher = PasswordHasher(time_cost=2, memory_cost=19456, parallelism=1)
+    demo_accounts = [
+        ("admin", "dut-cinema-admin-2026", "Quản trị viên DUT Cinema", "ADMIN"),
+        ("staff", "dut-cinema-staff-2026", "Nhân viên Soát vé", "STAFF"),
+    ]
+    with connection.cursor() as cursor:
+        for username, password, full_name, role in demo_accounts:
+            cursor.execute(
+                """
+                INSERT INTO cinema_booking.accounts (id, username, password_hash, full_name, role)
+                VALUES (%s, %s, %s, %s, %s)
+                ON CONFLICT (username) DO UPDATE SET
+                    role = EXCLUDED.role,
+                    full_name = COALESCE(cinema_booking.accounts.full_name, EXCLUDED.full_name)
+                """,
+                (uuid4(), username, hasher.hash(password), full_name, role),
+            )
 
 
 def seed_theatrical_films(connection):
@@ -516,7 +539,11 @@ def main():
         for schema, role in zip(SCHEMAS, args.runtime_roles or []):
             identifiers = {"schema": sql.Identifier(schema), "role": sql.Identifier(role)}
             connection.execute(sql.SQL("GRANT USAGE ON SCHEMA {schema} TO {role}").format(**identifiers))
-            permissions = "SELECT" if schema == "cinema_catalog" else "SELECT, INSERT, UPDATE"
+            permissions = (
+                "SELECT, INSERT, UPDATE, DELETE"
+                if schema == "cinema_catalog"
+                else "SELECT, INSERT, UPDATE"
+            )
             connection.execute(
                 sql.SQL("GRANT " + permissions + " ON ALL TABLES IN SCHEMA {schema} TO {role}").format(
                     **identifiers

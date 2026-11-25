@@ -46,7 +46,18 @@ from cinema.booking.services import (
     PaymentClient,
 )
 from cinema.common import Database, ServiceClient, Settings, configure_http
-from cinema.contracts import CheckoutRequest, SimulatePayment
+from cinema.contracts import (
+    AdminAuditoriumInput,
+    AdminBlogPostInput,
+    AdminCinemaInput,
+    AdminConcessionInput,
+    AdminMovieInput,
+    AdminPromotionInput,
+    AdminRoleUpdate,
+    AdminScreeningInput,
+    CheckoutRequest,
+    SimulatePayment,
+)
 from cinema.messaging import Background, Outbox, RabbitWorker
 
 WEB = Path(__file__).resolve().parent.parent / "web"
@@ -85,7 +96,7 @@ def create_app(settings: Settings | None = None, downstream: httpx.BaseTransport
     db = Database(settings.database_url)
     http = httpx.Client(timeout=8, trust_env=False, transport=downstream)
     transport = ServiceClient(http)
-    catalog = CatalogClient(transport, settings.catalog_url)
+    catalog = CatalogClient(transport, settings.catalog_url, settings.internal_key)
     payment = PaymentClient(transport, settings.payment_url, settings.internal_key)
     accounts_repo = AccountRepository()
     auth = AuthService(db, accounts_repo, PasswordHasher(time_cost=2, memory_cost=19456, parallelism=1))
@@ -148,8 +159,20 @@ def create_app(settings: Settings | None = None, downstream: httpx.BaseTransport
             raise HTTPException(401, "Vui lòng đăng nhập để thực hiện thao tác này.")
         return account
 
+    def staff_account(account: Annotated[dict, Depends(signed_in_account)]):
+        if account.get("role") not in {"STAFF", "ADMIN"}:
+            raise HTTPException(403, "Chức năng này chỉ dành cho Nhân viên soát vé hoặc Quản trị viên.")
+        return account
+
+    def admin_account(account: Annotated[dict, Depends(signed_in_account)]):
+        if account.get("role") != "ADMIN":
+            raise HTTPException(403, "Chức năng này chỉ dành cho Quản trị viên (ADMIN).")
+        return account
+
     Viewer = Annotated[BookingViewer, Depends(viewer)]
     Account = Annotated[dict, Depends(signed_in_account)]
+    StaffAccount = Annotated[dict, Depends(staff_account)]
+    AdminAccount = Annotated[dict, Depends(admin_account)]
     same_origin = [Depends(require_same_origin)]
 
     def sign_in(authenticate, credentials, request, response):
@@ -272,4 +295,103 @@ def create_app(settings: Settings | None = None, downstream: httpx.BaseTransport
         return Response(buffer.getvalue(), media_type="image/svg+xml")
 
     app.get("/api/tickets/{code}")(service.ticket)
+
+    # ---------------- ADMIN & STAFF ENDPOINTS ----------------
+    @app.get("/api/admin/overview")
+    def admin_overview(admin: AdminAccount):
+        return service.admin_overview()
+
+    @app.get("/api/admin/bookings")
+    def admin_bookings(staff: StaffAccount, status: str | None = None, q: str | None = None):
+        return service.admin_bookings(status, q)
+
+    @app.post("/api/admin/tickets/{code}/check-in", dependencies=same_origin)
+    def admin_check_in_ticket(code: UUID, staff: StaffAccount):
+        return service.check_in_ticket(code, staff["id"])
+
+    @app.get("/api/admin/catalog")
+    def admin_catalog(admin: AdminAccount):
+        return catalog.admin_snapshot()
+
+    @app.post("/api/admin/movies", status_code=201, dependencies=same_origin)
+    def admin_create_movie(payload: AdminMovieInput, admin: AdminAccount):
+        return catalog.save_movie(payload)
+
+    @app.put("/api/admin/movies/{movie_id}", dependencies=same_origin)
+    def admin_update_movie(movie_id: str, payload: AdminMovieInput, admin: AdminAccount):
+        return catalog.save_movie(payload, movie_id)
+
+    @app.delete("/api/admin/movies/{movie_id}", status_code=204, dependencies=same_origin)
+    def admin_delete_movie(movie_id: str, admin: AdminAccount):
+        catalog.delete_movie(movie_id)
+
+    @app.post("/api/admin/cinemas", status_code=201, dependencies=same_origin)
+    def admin_create_cinema(payload: AdminCinemaInput, admin: AdminAccount):
+        return catalog.save_cinema(payload)
+
+    @app.put("/api/admin/cinemas/{cinema_id}", dependencies=same_origin)
+    def admin_update_cinema(cinema_id: str, payload: AdminCinemaInput, admin: AdminAccount):
+        return catalog.save_cinema(payload, cinema_id)
+
+    @app.post("/api/admin/auditoriums", status_code=201, dependencies=same_origin)
+    def admin_create_auditorium(payload: AdminAuditoriumInput, admin: AdminAccount):
+        return catalog.save_auditorium(payload)
+
+    @app.post("/api/admin/screenings", status_code=201, dependencies=same_origin)
+    def admin_create_screening(payload: AdminScreeningInput, admin: AdminAccount):
+        return catalog.save_screening(payload)
+
+    @app.put("/api/admin/screenings/{screening_id}", dependencies=same_origin)
+    def admin_update_screening(screening_id: str, payload: AdminScreeningInput, admin: AdminAccount):
+        return catalog.save_screening(payload, screening_id)
+
+    @app.delete("/api/admin/screenings/{screening_id}", status_code=204, dependencies=same_origin)
+    def admin_delete_screening(screening_id: str, admin: AdminAccount):
+        service.ensure_screening_deletable(screening_id)
+        catalog.delete_screening(screening_id)
+
+    @app.post("/api/admin/concessions", status_code=201, dependencies=same_origin)
+    def admin_create_concession(payload: AdminConcessionInput, admin: AdminAccount):
+        return catalog.save_concession(payload)
+
+    @app.put("/api/admin/concessions/{concession_id}", dependencies=same_origin)
+    def admin_update_concession(concession_id: str, payload: AdminConcessionInput, admin: AdminAccount):
+        return catalog.save_concession(payload, concession_id)
+
+    @app.delete("/api/admin/concessions/{concession_id}", status_code=204, dependencies=same_origin)
+    def admin_delete_concession(concession_id: str, admin: AdminAccount):
+        catalog.delete_concession(concession_id)
+
+    @app.post("/api/admin/promotions", status_code=201, dependencies=same_origin)
+    def admin_create_promotion(payload: AdminPromotionInput, admin: AdminAccount):
+        return catalog.save_promotion(payload)
+
+    @app.put("/api/admin/promotions/{promotion_id}", dependencies=same_origin)
+    def admin_update_promotion(promotion_id: str, payload: AdminPromotionInput, admin: AdminAccount):
+        return catalog.save_promotion(payload, promotion_id)
+
+    @app.delete("/api/admin/promotions/{promotion_id}", status_code=204, dependencies=same_origin)
+    def admin_delete_promotion(promotion_id: str, admin: AdminAccount):
+        catalog.delete_promotion(promotion_id)
+
+    @app.post("/api/admin/blog-posts", status_code=201, dependencies=same_origin)
+    def admin_create_blog_post(payload: AdminBlogPostInput, admin: AdminAccount):
+        return catalog.save_blog_post(payload)
+
+    @app.put("/api/admin/blog-posts/{post_id}", dependencies=same_origin)
+    def admin_update_blog_post(post_id: str, payload: AdminBlogPostInput, admin: AdminAccount):
+        return catalog.save_blog_post(payload, post_id)
+
+    @app.delete("/api/admin/blog-posts/{post_id}", status_code=204, dependencies=same_origin)
+    def admin_delete_blog_post(post_id: str, admin: AdminAccount):
+        catalog.delete_blog_post(post_id)
+
+    @app.get("/api/admin/accounts")
+    def admin_list_accounts(admin: AdminAccount):
+        return auth.list_accounts()
+
+    @app.patch("/api/admin/accounts/{account_id}/role", dependencies=same_origin)
+    def admin_update_role(account_id: UUID, payload: AdminRoleUpdate, admin: AdminAccount):
+        return auth.update_role(admin["id"], account_id, payload.role)
+
     return app

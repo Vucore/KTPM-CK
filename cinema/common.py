@@ -91,8 +91,11 @@ class ServiceClient:
             raise HTTPException(503, "Dịch vụ tạm thời gián đoạn. Hãy thử lại.") from error
         if response.status_code == 404:
             raise HTTPException(404, "Không tìm thấy dữ liệu")
-        if response.status_code == 409:
-            raise HTTPException(409, response.json()["detail"])
+        if response.status_code in {409, 422}:
+            detail = response.json().get("detail", "Yêu cầu không hợp lệ")
+            raise HTTPException(response.status_code, detail)
         if response.is_error:
             raise HTTPException(503, "Dịch vụ tạm thời gián đoạn. Hãy thử lại.")
+        if response.status_code == 204:
+            return None
         return response.json()

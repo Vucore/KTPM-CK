@@ -23,9 +23,10 @@ from cinema.messaging import Outbox, RejectedEvent
 
 
 class CatalogClient:
-    def __init__(self, service: ServiceClient, base_url: str):
+    def __init__(self, service: ServiceClient, base_url: str, internal_key: str = ""):
         self.service = service
         self.base_url = base_url.rstrip("/")
+        self.headers = {"X-Internal-Key": internal_key} if internal_key else {}
 
     def upcoming(self):
         return self.service.request("GET", f"{self.base_url}/screenings")
@@ -43,6 +44,112 @@ class CatalogClient:
 
     def checkout_options(self):
         return self.service.request("GET", f"{self.base_url}/catalog/checkout-options")
+
+    def admin_snapshot(self):
+        return self.service.request("GET", f"{self.base_url}/admin/catalog", headers=self.headers)
+
+    def save_movie(self, payload, movie_id: str | None = None):
+        method = "PUT" if movie_id else "POST"
+        suffix = f"/{quote(movie_id, safe='')}" if movie_id else ""
+        return self.service.request(
+            method,
+            f"{self.base_url}/admin/movies{suffix}",
+            headers=self.headers,
+            json=payload.model_dump(mode="json"),
+        )
+
+    def delete_movie(self, movie_id: str):
+        return self.service.request(
+            "DELETE",
+            f"{self.base_url}/admin/movies/{quote(movie_id, safe='')}",
+            headers=self.headers,
+        )
+
+    def save_cinema(self, payload, cinema_id: str | None = None):
+        method = "PUT" if cinema_id else "POST"
+        suffix = f"/{quote(cinema_id, safe='')}" if cinema_id else ""
+        return self.service.request(
+            method,
+            f"{self.base_url}/admin/cinemas{suffix}",
+            headers=self.headers,
+            json=payload.model_dump(mode="json"),
+        )
+
+    def save_auditorium(self, payload):
+        return self.service.request(
+            "POST",
+            f"{self.base_url}/admin/auditoriums",
+            headers=self.headers,
+            json=payload.model_dump(mode="json"),
+        )
+
+    def save_screening(self, payload, screening_id: str | None = None):
+        method = "PUT" if screening_id else "POST"
+        suffix = f"/{quote(screening_id, safe='')}" if screening_id else ""
+        return self.service.request(
+            method,
+            f"{self.base_url}/admin/screenings{suffix}",
+            headers=self.headers,
+            json=payload.model_dump(mode="json"),
+        )
+
+    def delete_screening(self, screening_id: str):
+        return self.service.request(
+            "DELETE",
+            f"{self.base_url}/admin/screenings/{quote(screening_id, safe='')}",
+            headers=self.headers,
+        )
+
+    def save_concession(self, payload, concession_id: str | None = None):
+        method = "PUT" if concession_id else "POST"
+        suffix = f"/{quote(concession_id, safe='')}" if concession_id else ""
+        return self.service.request(
+            method,
+            f"{self.base_url}/admin/concessions{suffix}",
+            headers=self.headers,
+            json=payload.model_dump(mode="json"),
+        )
+
+    def delete_concession(self, concession_id: str):
+        return self.service.request(
+            "DELETE",
+            f"{self.base_url}/admin/concessions/{quote(concession_id, safe='')}",
+            headers=self.headers,
+        )
+
+    def save_promotion(self, payload, promotion_id: str | None = None):
+        method = "PUT" if promotion_id else "POST"
+        suffix = f"/{quote(promotion_id, safe='')}" if promotion_id else ""
+        return self.service.request(
+            method,
+            f"{self.base_url}/admin/promotions{suffix}",
+            headers=self.headers,
+            json=payload.model_dump(mode="json"),
+        )
+
+    def delete_promotion(self, promotion_id: str):
+        return self.service.request(
+            "DELETE",
+            f"{self.base_url}/admin/promotions/{quote(promotion_id, safe='')}",
+            headers=self.headers,
+        )
+
+    def save_blog_post(self, payload, post_id: str | None = None):
+        method = "PUT" if post_id else "POST"
+        suffix = f"/{quote(post_id, safe='')}" if post_id else ""
+        return self.service.request(
+            method,
+            f"{self.base_url}/admin/blog-posts{suffix}",
+            headers=self.headers,
+            json=payload.model_dump(mode="json"),
+        )
+
+    def delete_blog_post(self, post_id: str):
+        return self.service.request(
+            "DELETE",
+            f"{self.base_url}/admin/blog-posts/{quote(post_id, safe='')}",
+            headers=self.headers,
+        )
 
 
 class PaymentClient:
@@ -334,6 +441,33 @@ class BookingService:
             if not ticket:
                 raise HTTPException(404, "Không tìm thấy vé")
             return ticket
+
+    def check_in_ticket(self, code: UUID, staff_account_id: UUID):
+        with self.db.transaction() as connection:
+            ticket = self.tickets.lock_ticket(connection, code)
+            if not ticket:
+                raise HTTPException(404, "Không tìm thấy mã vé này.")
+            if ticket["checked_in_at"] is not None:
+                raise HTTPException(409, "Vé này đã được soát vào rạp trước đó.")
+            stamped = self.tickets.mark_checked_in(connection, code, staff_account_id)
+            ticket["checked_in_at"] = stamped["checked_in_at"]
+            return ticket
+
+    def admin_overview(self):
+        with self.db.transaction() as connection:
+            return self.bookings.admin_overview(connection)
+
+    def admin_bookings(self, status_filter: str | None = None, query: str | None = None):
+        with self.db.transaction() as connection:
+            return self.bookings.admin_bookings(connection, status_filter, query)
+
+    def ensure_screening_deletable(self, screening_id: str):
+        with self.db.transaction() as connection:
+            if self.bookings.has_active_bookings_for_screening(connection, screening_id):
+                raise HTTPException(
+                    409,
+                    "Không thể xóa suất chiếu đang giữ ghế hoặc đã bán vé.",
+                )
 
     def expire_one(self):
         with self.db.transaction() as connection:

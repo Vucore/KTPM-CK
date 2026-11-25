@@ -7,21 +7,25 @@ class AccountRepository:
             """
             INSERT INTO cinema_booking.accounts (id, username, password_hash)
             VALUES (%s, %s, %s) ON CONFLICT (username) DO NOTHING
-            RETURNING id, username
+            RETURNING id, username, COALESCE(role, 'USER') AS role
             """,
             (account_id, username, password_hash),
         ).fetchone()
 
     def find(self, connection, username):
         return connection.execute(
-            "SELECT id, username, password_hash FROM cinema_booking.accounts WHERE username = %s",
+            """
+            SELECT id, username, password_hash, COALESCE(role, 'USER') AS role
+            FROM cinema_booking.accounts WHERE username = %s
+            """,
             (username,),
         ).fetchone()
 
     def find_by_id(self, connection, account_id):
         return connection.execute(
             """
-            SELECT id, username, password_hash, full_name, email, phone, birth_date, points, total_spent, created_at
+            SELECT id, username, password_hash, full_name, email, phone, birth_date,
+                   points, total_spent, COALESCE(role, 'USER') AS role, created_at
             FROM cinema_booking.accounts WHERE id = %s
             """,
             (account_id,),
@@ -30,7 +34,7 @@ class AccountRepository:
     def lock_account(self, connection, account_id):
         return connection.execute(
             """
-            SELECT id, username, points, total_spent
+            SELECT id, username, points, total_spent, COALESCE(role, 'USER') AS role
             FROM cinema_booking.accounts WHERE id = %s FOR UPDATE
             """,
             (account_id,),
@@ -42,9 +46,33 @@ class AccountRepository:
             UPDATE cinema_booking.accounts
             SET full_name = %s, email = %s, phone = %s, birth_date = %s
             WHERE id = %s
-            RETURNING id, username, full_name, email, phone, birth_date, points, total_spent, created_at
+            RETURNING id, username, full_name, email, phone, birth_date,
+                      points, total_spent, COALESCE(role, 'USER') AS role, created_at
             """,
             (full_name, email, phone, birth_date, account_id),
+        ).fetchone()
+
+    def list_accounts(self, connection):
+        return connection.execute(
+            """
+            SELECT id, username, full_name, email, phone, birth_date,
+                   points, total_spent, COALESCE(role, 'USER') AS role, created_at
+            FROM cinema_booking.accounts
+            ORDER BY CASE COALESCE(role, 'USER') WHEN 'ADMIN' THEN 0 WHEN 'STAFF' THEN 1 ELSE 2 END,
+                     created_at DESC
+            LIMIT 100
+            """
+        ).fetchall()
+
+    def update_role(self, connection, account_id, role):
+        return connection.execute(
+            """
+            UPDATE cinema_booking.accounts
+            SET role = %s WHERE id = %s
+            RETURNING id, username, full_name, email, phone,
+                      points, total_spent, COALESCE(role, 'USER') AS role, created_at
+            """,
+            (role, account_id),
         ).fetchone()
 
     def record_point_transaction(self, connection, account_id, booking_id, kind, points_delta, description):
@@ -130,7 +158,8 @@ class AccountRepository:
         return connection.execute(
             """
             SELECT account.id, account.username, account.full_name, account.email,
-                   account.phone, account.birth_date, account.points, account.total_spent
+                   account.phone, account.birth_date, account.points, account.total_spent,
+                   COALESCE(account.role, 'USER') AS role
             FROM cinema_booking.account_sessions AS session
             JOIN cinema_booking.accounts AS account ON account.id = session.account_id
             WHERE session.token_hash = %s AND session.expires_at > statement_timestamp()

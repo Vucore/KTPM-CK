@@ -123,6 +123,75 @@ img { display: block; max-width: 100%; }
 .nav-link:hover, .nav-link[aria-current="page"] { color: var(--accent); }
 .account-pill { padding: 6px 12px; border-radius: 999px; background: #f3f6fa; border: 1px solid var(--line); }
 .account-pill:hover { border-color: var(--accent); background: var(--tint); }
+.mobile-logout-btn { background: transparent; border: 0; padding: 0; text-align: left; color: #c52a2a; }
+
+/* USER HOVER MENU (GALAXY STYLE) */
+.user-menu { position: relative; }
+.user-trigger {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 4px 6px;
+    border-radius: 8px;
+    text-decoration: none;
+    color: var(--ink);
+}
+.user-trigger:hover { background: #f7f9fc; }
+.user-avatar {
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    border: 3px solid #d9dce0;
+    background: #eceef1;
+    color: #8b949e;
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
+}
+.user-meta { display: grid; gap: 1px; line-height: 1.2; text-align: left; }
+.user-name { font-size: .84rem; font-weight: 700; color: var(--accent); max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.user-tier-row, .user-stars-row { display: inline-flex; align-items: center; gap: 5px; font-size: .72rem; }
+.user-tier-row { color: var(--accent); }
+.user-stars-row { color: var(--ink); font-weight: 500; }
+.user-stars-row svg { color: var(--accent); }
+.user-dropdown {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    min-width: 196px;
+    background: var(--surface);
+    border: 1px solid #eceff3;
+    border-radius: 8px;
+    box-shadow: 0 12px 28px #1020331f;
+    padding: 6px 0;
+    z-index: 35;
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(-4px);
+    transition: opacity .16s ease, transform .16s ease, visibility .16s;
+}
+.user-menu::after { content: ""; position: absolute; left: 0; right: 0; top: 100%; height: 10px; }
+.user-menu:is(:hover, :focus-within) .user-dropdown {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+}
+.user-menu-item {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 18px;
+    border: 0;
+    background: transparent;
+    color: var(--ink);
+    font-size: .88rem;
+    font-weight: 500;
+    text-decoration: none;
+    text-align: left;
+}
+.user-menu-item:hover { background: #f5f7fa; color: var(--accent); }
+.user-menu-item svg { flex-shrink: 0; }
 
 .ticket-cta {
     min-height: 38px;
@@ -793,6 +862,52 @@ input::placeholder { color: var(--muted); }
 .point-tx-delta.pos { color: #227245; }
 .point-tx-delta.neg { color: var(--accent-hover); }
 
+/* ADMIN PORTAL */
+.admin-pill {
+    padding: 5px 12px;
+    border-radius: 999px;
+    background: var(--tint);
+    border: 1px solid #f0b89e;
+    color: var(--accent-hover);
+}
+.admin-pill:hover { background: var(--accent); border-color: var(--accent); color: #fff; }
+.admin-heading-row { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 16px; }
+.admin-tabs { margin-bottom: 22px; border-bottom: 1px solid var(--line); padding-bottom: 4px; }
+.admin-tab-panel { display: grid; gap: 22px; }
+.kpi-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+.kpi-card { gap: 6px; padding: 18px; }
+.kpi-value { font: 700 1.85rem/1.05 var(--display); color: var(--blue); }
+.admin-two-col { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; align-items: start; }
+.admin-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.table-scroll { overflow-x: auto; max-height: 460px; overflow-y: auto; }
+textarea {
+    color: var(--ink);
+    width: 100%;
+    padding: 9px 12px;
+    border-radius: 7px;
+    border: 1px solid #c9c1b4;
+    background: var(--surface);
+    font: inherit;
+    font-size: .875rem;
+    resize: vertical;
+}
+.checkbox-row { display: inline-flex; align-items: center; gap: 8px; font-size: .84rem; cursor: pointer; }
+.checkbox-row input { width: auto; min-height: auto; }
+.table-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.btn-xs {
+    min-height: 30px;
+    padding: 4px 9px;
+    font-size: .75rem;
+    border-radius: 5px;
+    border: 1px solid var(--line);
+    background: var(--surface);
+    font-weight: 700;
+    color: var(--ink);
+}
+.btn-xs:hover { border-color: var(--blue); color: var(--blue); }
+.btn-xs.danger:hover { border-color: #c52a2a; color: #c52a2a; background: #fff5f5; }
+.role-select { min-height: 32px; padding: 3px 22px 3px 8px; font-size: .78rem; width: auto; }
+
 /* MODAL */
 .modal-backdrop {
     position: fixed;
@@ -843,7 +958,8 @@ input::placeholder { color: var(--muted); }
     .hero-preview { display: none; }
     .quick-book { grid-template-columns: minmax(0, 1.2fr) repeat(3, minmax(0, 1fr)) auto; }
     .movie-grid, .promo-grid, .blog-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
-    .flow-grid, .cinema-layout, .home-spotlight { grid-template-columns: minmax(0, 1fr); }
+    .kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .flow-grid, .cinema-layout, .home-spotlight, .admin-two-col { grid-template-columns: minmax(0, 1fr); }
     .payment-grid { grid-template-areas: "summary" "payment"; }
     .footer-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
@@ -858,13 +974,14 @@ input::placeholder { color: var(--muted); }
     .movie-grid, .promo-grid, .blog-grid, .spotlight-promo-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .detail-hero { grid-template-columns: minmax(0, 1fr); }
     .detail-poster { max-width: 220px; }
-    .detail-facts, .ticket-grid, .payment-methods, .sim-fields { grid-template-columns: minmax(0, 1fr); }
+    .detail-facts, .ticket-grid, .payment-methods, .sim-fields, .admin-form-grid, .kpi-grid { grid-template-columns: minmax(0, 1fr); }
     .ticket { grid-template-columns: minmax(0, 1fr) 130px; }
     .ticket-code img { width: 106px; height: 106px; }
 }
 @media (max-width: 480px) {
     .header-inner { min-height: 62px; }
     .header-actions { display: none; }
+    .user-meta { display: none; }
     .site-nav { gap: 10px; }
     .site-nav .nav-link { font-size: .76rem; }
     .brand { gap: 7px; font-size: 1.55rem; }

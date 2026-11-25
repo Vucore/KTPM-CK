@@ -18,6 +18,7 @@ from cinema.booking.domain import (
     calculate_discount,
     member_tier,
 )
+from cinema.contracts import AdminBlogPostInput, AdminMovieInput, AdminPromotionInput
 from cinema.payment.gateway import DemoPaymentAdapter, DemoProcessor
 
 
@@ -91,3 +92,44 @@ def test_calculate_discount_and_member_tiers():
     assert member_tier(0)["name"] == "Member"
     assert member_tier(1_500_000)["name"] == "D-Star"
     assert member_tier(4_000_000)["name"] == "X-Star"
+
+
+def test_admin_contract_validators():
+    promo = AdminPromotionInput(
+        id="promo-test",
+        title="Ưu đãi thử nghiệm",
+        tag="Test",
+        summary="Giảm 20k",
+        code="  dut20test ",
+    )
+    assert promo.code == "DUT20TEST"
+
+    info_promo = AdminPromotionInput(
+        id="promo-info",
+        title="Tin tức",
+        tag="Info",
+        summary="Không mã",
+        code="   ",
+        discount_type="INFO",
+    )
+    assert info_promo.code is None
+
+    blog = AdminBlogPostInput(
+        id="blog-test",
+        title="Bài viết mới",
+        summary="Tóm tắt",
+        content="Nội dung",
+        movie_id="  ",
+    )
+    assert blog.movie_id is None
+
+    movie = AdminMovieInput(
+        id="new-film",
+        title="Phim Mới",
+        genre="Hành động",
+        duration_minutes=120,
+        synopsis="Nội dung phim mới",
+        age_rating="T16",
+    )
+    assert movie.id == "new-film"
+

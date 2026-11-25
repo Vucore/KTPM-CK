@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#ffffff">
     <title>DUT Cinema · Hệ thống rạp chiếu phim &amp; đặt vé trực tuyến</title>
-    <link rel="stylesheet" href="/assets/style.css?v=4">
-    <script type="module" src="/assets/app.js?v=4"></script>
+    <link rel="stylesheet" href="/assets/style.css?v=6">
+    <script type="module" src="/assets/app.js?v=6"></script>
 </head>
 <body>
     <a class="skip" href="#main">Đến nội dung chính</a>
@@ -32,8 +32,67 @@
             </div>
 
             <nav class="site-nav" aria-label="Tài khoản và vé">
+                <a id="admin-nav-link" class="nav-link admin-pill" href="/?view=admin" hidden>Quản trị</a>
                 <a id="ticket-history-link" class="nav-link" href="/?view=tickets">Vé của tôi</a>
                 <a id="account-link" class="nav-link account-pill" href="/?view=account">Đăng nhập</a>
+                <div id="user-menu" class="user-menu" hidden>
+                    <a href="/?view=account" class="user-trigger" aria-haspopup="true">
+                        <span class="user-avatar" aria-hidden="true">
+                            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8">
+                                <circle cx="12" cy="8" r="4"/>
+                                <path d="M5 20c0-3.5 3.1-6 7-6s7 2.5 7 6"/>
+                            </svg>
+                        </span>
+                        <span class="user-meta">
+                            <span id="user-menu-name" class="user-name">Thành viên</span>
+                            <span class="user-tier-row">
+                                <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                    <circle cx="12" cy="9" r="5"/>
+                                    <path d="M9.5 13.5 8 21l4-2 4 2-1.5-7.5"/>
+                                </svg>
+                                <span id="user-menu-tier">Member</span>
+                            </span>
+                            <span class="user-stars-row">
+                                <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                    <rect x="3" y="8" width="18" height="4" rx="1"/>
+                                    <path d="M12 8v13M5 12v8a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-8"/>
+                                    <path d="M7.5 8a2.5 2.5 0 1 1 4.5-1.5A2.5 2.5 0 1 1 16.5 8"/>
+                                </svg>
+                                <span id="user-menu-stars">0 Stars</span>
+                            </span>
+                        </span>
+                    </a>
+                    <div class="user-dropdown" role="menu">
+                        <a href="/?view=account" class="user-menu-item" role="menuitem">
+                            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" aria-hidden="true">
+                                <rect x="5" y="4" width="14" height="17" rx="2"/>
+                                <circle cx="12" cy="11" r="2.5"/>
+                                <path d="M8.5 17.5c.6-2 6.4-2 7 0"/>
+                            </svg>
+                            <span>Tài Khoản</span>
+                        </a>
+                        <a href="/?view=tickets" class="user-menu-item" role="menuitem">
+                            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" aria-hidden="true">
+                                <path d="M10 6h10M10 12h10M10 18h10"/>
+                                <path d="M4 6h1v3M4 13.5c0-.8.7-1.5 1.5-1.5s1.5.7 1.5 1.5c0 1.2-3 2-3 3.5h3"/>
+                            </svg>
+                            <span>Lịch Sử</span>
+                        </a>
+                        <a id="dropdown-admin-link" href="/?view=admin" class="user-menu-item" role="menuitem" hidden>
+                            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" aria-hidden="true">
+                                <path d="M12 3l8 4v5c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V7l8-4z"/>
+                            </svg>
+                            <span id="dropdown-admin-label">Quản trị</span>
+                        </a>
+                        <button id="header-logout-btn" class="user-menu-item logout-item" type="button" role="menuitem">
+                            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.9" aria-hidden="true">
+                                <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/>
+                                <path d="M10 17l5-5-5-5M15 12H3"/>
+                            </svg>
+                            <span>Đăng Xuất</span>
+                        </button>
+                    </div>
+                </div>
                 <button id="mobile-menu-toggle" class="mobile-menu-btn" type="button" aria-expanded="false" aria-controls="mobile-drawer" aria-label="Mở menu điều hướng">
                     <span></span><span></span><span></span>
                 </button>
@@ -46,6 +105,9 @@
             <a class="nav-link" href="/?view=blog">Góc Điện Ảnh</a>
             <a class="nav-link" href="/?view=promotions">Sự Kiện &amp; Ưu Đãi</a>
             <a class="nav-link" href="/?view=cinemas">Rạp &amp; Giá Vé</a>
+            <a id="mobile-admin-link" class="nav-link" href="/?view=admin" hidden>Quản trị hệ thống</a>
+            <a class="nav-link" href="/?view=account">Tài khoản thành viên</a>
+            <button id="mobile-logout-btn" class="nav-link mobile-logout-btn" type="button" hidden>Đăng xuất</button>
         </div>
     </header>
 
@@ -350,6 +412,7 @@
                             </div>
                             <div class="account-actions">
                                 <a class="button primary" href="/?view=tickets">Xem Vé của tôi</a>
+                                <a id="account-admin-shortcut" class="button secondary" href="/?view=admin" hidden>Mở trang Quản trị</a>
                                 <button id="sign-out" class="button secondary" type="button">Đăng xuất</button>
                             </div>
                             <p id="logout-status" class="payment-status" role="status" hidden></p>
@@ -608,6 +671,508 @@
                 <a class="button secondary ticket-return" id="ticket-return" href="/#lich-chieu" hidden>Trở lại lịch chiếu <span class="arrow" aria-hidden="true"></span></a>
             </section>
         </div>
+
+        <!-- ADMIN & STAFF PORTAL -->
+        <section id="admin-view" class="wrap flow admin-page" aria-labelledby="admin-title" hidden>
+            <div class="flow-heading admin-heading-row">
+                <div>
+                    <span id="admin-role-badge" class="promo-tag">ADMIN</span>
+                    <h1 id="admin-title">Quản trị DUT Cinema</h1>
+                    <p class="muted">Điều hành lịch chiếu, danh mục phim, cụm rạp, khuyến mãi, soát vé QR và báo cáo doanh thu.</p>
+                </div>
+                <button id="admin-refresh-btn" class="button secondary" type="button">Làm mới dữ liệu</button>
+            </div>
+
+            <p id="admin-status" class="notice" role="status" hidden></p>
+
+            <div id="admin-denied" class="panel" hidden>
+                <h2>Yêu cầu quyền Quản trị hoặc Nhân viên</h2>
+                <p class="muted">Vui lòng đăng nhập bằng tài khoản có quyền <strong>ADMIN</strong> hoặc <strong>STAFF</strong> để truy cập phân hệ này.</p>
+                <div class="account-actions">
+                    <a class="button primary" href="/?view=account">Đến trang Đăng nhập</a>
+                </div>
+            </div>
+
+            <div id="admin-workspace" hidden>
+                <div class="movie-tabs admin-tabs" id="admin-tablist" role="tablist" aria-label="Chuyên mục quản trị">
+                    <button class="movie-tab" type="button" data-admin-tab="overview" aria-selected="true">1. Tổng quan &amp; Đơn vé</button>
+                    <button class="movie-tab" type="button" data-admin-tab="checkin" aria-selected="false">2. Soát vé QR</button>
+                    <button class="movie-tab" type="button" data-admin-tab="movies" aria-selected="false">3. Quản lý Phim</button>
+                    <button class="movie-tab" type="button" data-admin-tab="screenings" aria-selected="false">4. Rạp &amp; Suất chiếu</button>
+                    <button class="movie-tab" type="button" data-admin-tab="concessions" aria-selected="false">5. Bắp nước &amp; Khuyến mãi</button>
+                    <button class="movie-tab" type="button" data-admin-tab="blog" aria-selected="false">6. Góc Điện Ảnh &amp; Thành viên</button>
+                </div>
+
+                <!-- TAB 1: OVERVIEW & BOOKINGS -->
+                <div id="admin-tab-overview" class="admin-tab-panel">
+                    <div class="kpi-grid">
+                        <article class="panel kpi-card">
+                            <span class="muted">Tổng doanh thu xác nhận</span>
+                            <strong id="kpi-revenue" class="kpi-value">0 ₫</strong>
+                            <small id="kpi-revenue-sub" class="muted">Bắp nước: 0 ₫ · Giảm giá: 0 ₫</small>
+                        </article>
+                        <article class="panel kpi-card">
+                            <span class="muted">Đơn đặt vé</span>
+                            <strong id="kpi-bookings" class="kpi-value">0</strong>
+                            <small id="kpi-bookings-sub" class="muted">Đang giữ: 0 · Đã hủy/Hết hạn: 0</small>
+                        </article>
+                        <article class="panel kpi-card">
+                            <span class="muted">Vé đã bán &amp; Check-in</span>
+                            <strong id="kpi-tickets" class="kpi-value">0 / 0</strong>
+                            <small class="muted">Đã soát vé / Tổng vé phát hành</small>
+                        </article>
+                        <article class="panel kpi-card">
+                            <span class="muted">Thành viên D-Star</span>
+                            <strong id="kpi-members" class="kpi-value">0</strong>
+                            <small class="muted">Tài khoản đăng ký trên hệ thống</small>
+                        </article>
+                    </div>
+
+                    <div class="admin-two-col">
+                        <section class="panel">
+                            <h2>Doanh thu theo Phim</h2>
+                            <div class="table-scroll">
+                                <table class="price-table">
+                                    <thead><tr><th>Phim</th><th>Số đơn</th><th>Số ghế</th><th>Doanh thu</th></tr></thead>
+                                    <tbody id="admin-rev-movie-body"></tbody>
+                                </table>
+                            </div>
+                        </section>
+                        <section class="panel">
+                            <h2>Doanh thu theo Cụm rạp</h2>
+                            <div class="table-scroll">
+                                <table class="price-table">
+                                    <thead><tr><th>Cụm rạp</th><th>Số đơn</th><th>Số ghế</th><th>Doanh thu</th></tr></thead>
+                                    <tbody id="admin-rev-cinema-body"></tbody>
+                                </table>
+                            </div>
+                        </section>
+                    </div>
+
+                    <section class="panel">
+                        <div class="section-heading">
+                            <h2>Danh sách Đơn đặt vé</h2>
+                            <div class="schedule-filters">
+                                <div class="schedule-filter">
+                                    <label for="admin-booking-status">Trạng thái</label>
+                                    <select id="admin-booking-status">
+                                        <option value="">Tất cả</option>
+                                        <option value="CONFIRMED">Đã cấp vé</option>
+                                        <option value="HELD">Đang giữ ghế</option>
+                                        <option value="EXPIRED">Hết hạn</option>
+                                        <option value="CANCELLED">Đã hủy</option>
+                                    </select>
+                                </div>
+                                <div class="schedule-filter">
+                                    <label for="admin-booking-q">Tìm đơn / khách</label>
+                                    <input id="admin-booking-q" type="search" placeholder="Mã đơn, tên phim, khách…">
+                                </div>
+                            </div>
+                        </div>
+                        <div class="table-scroll">
+                            <table class="price-table">
+                                <thead>
+                                    <tr><th>Mã đơn</th><th>Phim &amp; Rạp</th><th>Suất chiếu</th><th>Ghế</th><th>Khách / TK</th><th>Tổng tiền</th><th>Trạng thái</th></tr>
+                                </thead>
+                                <tbody id="admin-bookings-body"></tbody>
+                            </table>
+                        </div>
+                    </section>
+                </div>
+
+                <!-- TAB 2: QR CHECK-IN -->
+                <div id="admin-tab-checkin" class="admin-tab-panel" hidden>
+                    <div class="admin-two-col">
+                        <form id="admin-checkin-form" class="panel">
+                            <h2>Quầy soát vé QR (Check-in)</h2>
+                            <p class="panel-note">Quét mã QR trên vé khách hàng hoặc dán UUID mã vé để kiểm tra và xác nhận vào rạp.</p>
+                            <div class="field">
+                                <label for="admin-ticket-code">Mã vé (UUID)</label>
+                                <input id="admin-ticket-code" required maxlength="80" placeholder="Dán mã vé UUID tại đây" autocomplete="off" spellcheck="false">
+                            </div>
+                            <div class="account-actions">
+                                <button id="admin-ticket-inspect-btn" class="button secondary" type="button">Kiểm tra vé</button>
+                                <button id="admin-ticket-checkin-btn" class="button primary" type="submit">Xác nhận Check-in vào rạp</button>
+                            </div>
+                            <p id="admin-checkin-feedback" class="payment-status" role="status" hidden></p>
+                        </form>
+
+                        <section id="admin-ticket-card" class="panel" hidden>
+                            <div class="section-mini-head">
+                                <h2>Thông tin vé</h2>
+                                <span id="admin-ticket-badge" class="history-state"></span>
+                            </div>
+                            <dl class="order-facts" id="admin-ticket-facts"></dl>
+                        </section>
+                    </div>
+                </div>
+
+                <!-- TAB 3: MOVIES CRUD -->
+                <div id="admin-tab-movies" class="admin-tab-panel" hidden>
+                    <div class="admin-two-col">
+                        <form id="admin-movie-form" class="panel">
+                            <div class="section-mini-head">
+                                <h2 id="admin-movie-form-title">Thêm / Cập nhật Phim</h2>
+                                <button id="admin-movie-reset" class="button secondary" type="button">Làm mới form</button>
+                            </div>
+                            <div class="admin-form-grid">
+                                <div class="field">
+                                    <label for="am-id">Mã phim (slug)</label>
+                                    <input id="am-id" required pattern="^[a-z0-9-]+$" maxlength="64" placeholder="vd: mai-2026">
+                                </div>
+                                <div class="field">
+                                    <label for="am-title">Tên phim</label>
+                                    <input id="am-title" required maxlength="140" placeholder="Tên phim hiển thị">
+                                </div>
+                                <div class="field">
+                                    <label for="am-genre">Thể loại</label>
+                                    <input id="am-genre" required maxlength="100" placeholder="Tâm lý · Tình cảm">
+                                </div>
+                                <div class="field">
+                                    <label for="am-duration">Thời lượng (phút)</label>
+                                    <input id="am-duration" type="number" min="1" max="600" value="115" required>
+                                </div>
+                                <div class="field">
+                                    <label for="am-status">Trạng thái</label>
+                                    <select id="am-status">
+                                        <option value="NOW_SHOWING">Đang chiếu (NOW_SHOWING)</option>
+                                        <option value="COMING_SOON">Sắp chiếu (COMING_SOON)</option>
+                                    </select>
+                                </div>
+                                <div class="field">
+                                    <label for="am-age">Phân loại độ tuổi</label>
+                                    <select id="am-age">
+                                        <option value="P">P - Phổ biến mọi độ tuổi</option>
+                                        <option value="K">K - Dưới 13 tuổi có người giám hộ</option>
+                                        <option value="T13">T13 - Từ 13 tuổi trở lên</option>
+                                        <option value="T16">T16 - Từ 16 tuổi trở lên</option>
+                                        <option value="T18">T18 - Từ 18 tuổi trở lên</option>
+                                    </select>
+                                </div>
+                                <div class="field">
+                                    <label for="am-rating">Điểm đánh giá (0-10)</label>
+                                    <input id="am-rating" type="number" min="0" max="10" step="0.1" value="8.8" required>
+                                </div>
+                                <div class="field">
+                                    <label for="am-release">Ngày khởi chiếu</label>
+                                    <input id="am-release" type="date">
+                                </div>
+                                <div class="field">
+                                    <label for="am-director">Đạo diễn</label>
+                                    <input id="am-director" maxlength="140" placeholder="Tên đạo diễn">
+                                </div>
+                                <div class="field">
+                                    <label for="am-country">Quốc gia</label>
+                                    <input id="am-country" maxlength="80" value="Việt Nam">
+                                </div>
+                            </div>
+                            <div class="field">
+                                <label for="am-cast">Diễn viên</label>
+                                <input id="am-cast" maxlength="300" placeholder="Danh sách diễn viên chính">
+                            </div>
+                            <div class="admin-form-grid">
+                                <div class="field">
+                                    <label for="am-trailer">Trailer Embed URL <small>(tùy chọn)</small></label>
+                                    <input id="am-trailer" maxlength="300" placeholder="https://www.youtube.com/embed/...">
+                                </div>
+                                <div class="field">
+                                    <label for="am-poster">Ảnh Poster URL <small>(tùy chọn)</small></label>
+                                    <input id="am-poster" maxlength="300" placeholder="/assets/films/saigon-small.jpg">
+                                </div>
+                            </div>
+                            <label class="checkbox-row"><input id="am-imax" type="checkbox"> <span>Hỗ trợ định dạng IMAX</span></label>
+                            <div class="field">
+                                <label for="am-synopsis">Tóm tắt nội dung</label>
+                                <textarea id="am-synopsis" rows="3" required maxlength="2000" placeholder="Mô tả nội dung phim…"></textarea>
+                            </div>
+                            <button class="button primary panel-action" type="submit">Lưu thông tin phim</button>
+                            <p id="am-feedback" class="payment-status" role="status" hidden></p>
+                        </form>
+
+                        <section class="panel">
+                            <h2>Danh mục Phim (<span id="admin-movie-total">0</span>)</h2>
+                            <div class="table-scroll">
+                                <table class="price-table">
+                                    <thead><tr><th>Phim</th><th>Trạng thái</th><th>Độ tuổi / ★</th><th>Suất</th><th>Thao tác</th></tr></thead>
+                                    <tbody id="admin-movies-body"></tbody>
+                                </table>
+                            </div>
+                        </section>
+                    </div>
+                </div>
+
+                <!-- TAB 4: CINEMAS, AUDITORIUMS & SCREENINGS -->
+                <div id="admin-tab-screenings" class="admin-tab-panel" hidden>
+                    <div class="admin-two-col">
+                        <div class="concessions-left">
+                            <form id="admin-screening-form" class="panel">
+                                <div class="section-mini-head">
+                                    <h2>Lên lịch Suất chiếu</h2>
+                                    <button id="admin-screening-reset" class="button secondary" type="button">Làm mới</button>
+                                </div>
+                                <div class="admin-form-grid">
+                                    <div class="field">
+                                        <label for="as-id">Mã suất <small>(để trống tự tạo)</small></label>
+                                        <input id="as-id" maxlength="100" placeholder="vd: saigon-20h">
+                                    </div>
+                                    <div class="field">
+                                        <label for="as-movie">Chọn phim</label>
+                                        <select id="as-movie" required></select>
+                                    </div>
+                                    <div class="field">
+                                        <label for="as-auditorium">Phòng chiếu &amp; Rạp</label>
+                                        <select id="as-auditorium" required></select>
+                                    </div>
+                                    <div class="field">
+                                        <label for="as-starts">Ngày &amp; Giờ chiếu</label>
+                                        <input id="as-starts" type="datetime-local" required>
+                                    </div>
+                                    <div class="field">
+                                        <label for="as-format">Định dạng chiếu</label>
+                                        <select id="as-format">
+                                            <option value="2D Phụ đề">2D Phụ đề</option>
+                                            <option value="2D Lồng tiếng">2D Lồng tiếng</option>
+                                            <option value="IMAX 2D">IMAX 2D</option>
+                                            <option value="3D Phụ đề">3D Phụ đề</option>
+                                        </select>
+                                    </div>
+                                    <div class="field">
+                                        <label for="as-price">Giá vé cơ bản (VNĐ)</label>
+                                        <input id="as-price" type="number" min="10000" step="5000" value="85000" required>
+                                    </div>
+                                </div>
+                                <label class="checkbox-row"><input id="as-special" type="checkbox"> <span>Suất chiếu đặc biệt / Sneak Show</span></label>
+                                <button class="button primary panel-action" type="submit">Lưu suất chiếu</button>
+                                <p id="as-feedback" class="payment-status" role="status" hidden></p>
+                            </form>
+
+                            <form id="admin-auditorium-form" class="panel">
+                                <h2>Tạo Phòng chiếu &amp; Sơ đồ ghế</h2>
+                                <div class="admin-form-grid">
+                                    <div class="field">
+                                        <label for="aa-id">Mã phòng (slug)</label>
+                                        <input id="aa-id" required pattern="^[a-z0-9-]+$" placeholder="vd: room-5">
+                                    </div>
+                                    <div class="field">
+                                        <label for="aa-name">Tên phòng</label>
+                                        <input id="aa-name" required placeholder="Phòng 5 · Đà Nẵng">
+                                    </div>
+                                    <div class="field">
+                                        <label for="aa-cinema">Thuộc cụm rạp</label>
+                                        <select id="aa-cinema" required></select>
+                                    </div>
+                                    <div class="field">
+                                        <label for="aa-format">Định dạng phòng</label>
+                                        <input id="aa-format" value="2D Phụ đề" required>
+                                    </div>
+                                    <div class="field">
+                                        <label for="aa-std">Số hàng ghế Thường</label>
+                                        <input id="aa-std" type="number" min="1" max="10" value="3" required>
+                                    </div>
+                                    <div class="field">
+                                        <label for="aa-vip">Số hàng ghế VIP</label>
+                                        <input id="aa-vip" type="number" min="0" max="6" value="1" required>
+                                    </div>
+                                    <div class="field">
+                                        <label for="aa-couple">Số ghế đôi Sweetbox</label>
+                                        <input id="aa-couple" type="number" min="0" max="8" value="4" required>
+                                    </div>
+                                    <div class="field">
+                                        <label for="aa-cols">Số ghế mỗi hàng</label>
+                                        <input id="aa-cols" type="number" min="4" max="16" value="8" required>
+                                    </div>
+                                </div>
+                                <button class="button secondary panel-action" type="submit">Tạo phòng &amp; Sinh ghế tự động</button>
+                                <p id="aa-feedback" class="payment-status" role="status" hidden></p>
+                            </form>
+                        </div>
+
+                        <section class="panel">
+                            <h2>Danh sách Suất chiếu (<span id="admin-screening-total">0</span>)</h2>
+                            <div class="table-scroll">
+                                <table class="price-table">
+                                    <thead><tr><th>Phim</th><th>Rạp / Phòng</th><th>Giờ chiếu</th><th>Giá gốc</th><th>Thao tác</th></tr></thead>
+                                    <tbody id="admin-screenings-body"></tbody>
+                                </table>
+                            </div>
+                        </section>
+                    </div>
+                </div>
+
+                <!-- TAB 5: CONCESSIONS & PROMOTIONS -->
+                <div id="admin-tab-concessions" class="admin-tab-panel" hidden>
+                    <div class="admin-two-col">
+                        <div class="concessions-left">
+                            <form id="admin-concession-form" class="panel">
+                                <h2>Thêm / Sửa Combo Bắp nước</h2>
+                                <div class="admin-form-grid">
+                                    <div class="field">
+                                        <label for="ac-id">Mã sản phẩm (slug)</label>
+                                        <input id="ac-id" required pattern="^[a-z0-9-]+$" placeholder="vd: combo-family">
+                                    </div>
+                                    <div class="field">
+                                        <label for="ac-name">Tên hiển thị</label>
+                                        <input id="ac-name" required placeholder="Combo Gia Đình">
+                                    </div>
+                                    <div class="field">
+                                        <label for="ac-price">Giá bán (VNĐ)</label>
+                                        <input id="ac-price" type="number" min="5000" step="1000" value="99000" required>
+                                    </div>
+                                    <div class="field">
+                                        <label for="ac-badge">Nhãn nổi bật <small>(tùy chọn)</small></label>
+                                        <input id="ac-badge" placeholder="Bán chạy / Mới">
+                                    </div>
+                                </div>
+                                <div class="field">
+                                    <label for="ac-desc">Mô tả chi tiết</label>
+                                    <input id="ac-desc" required placeholder="2 Bắp lớn + 2 Nước ngọt lớn">
+                                </div>
+                                <label class="checkbox-row"><input id="ac-active" type="checkbox" checked> <span>Đang mở bán</span></label>
+                                <button class="button primary panel-action" type="submit">Lưu Combo Bắp nước</button>
+                                <p id="ac-feedback" class="payment-status" role="status" hidden></p>
+                            </form>
+
+                            <section class="panel">
+                                <h2>Danh sách Bắp nước</h2>
+                                <div class="table-scroll">
+                                    <table class="price-table">
+                                        <thead><tr><th>Tên</th><th>Giá</th><th>TT</th><th>Thao tác</th></tr></thead>
+                                        <tbody id="admin-concessions-body"></tbody>
+                                    </table>
+                                </div>
+                            </section>
+                        </div>
+
+                        <div class="concessions-left">
+                            <form id="admin-promo-form" class="panel">
+                                <h2>Thêm / Sửa Khuyến mãi &amp; Voucher</h2>
+                                <div class="admin-form-grid">
+                                    <div class="field">
+                                        <label for="ap-id">Mã chương trình (slug)</label>
+                                        <input id="ap-id" required pattern="^[a-z0-9-]+$" placeholder="vd: promo-tet">
+                                    </div>
+                                    <div class="field">
+                                        <label for="ap-tag">Nhãn chuyên mục</label>
+                                        <input id="ap-tag" required placeholder="Khuyến mãi Online">
+                                    </div>
+                                    <div class="field">
+                                        <label for="ap-code">Mã giảm giá <small>(để trống nếu chỉ thông báo)</small></label>
+                                        <input id="ap-code" maxlength="32" placeholder="vd: DUT30">
+                                    </div>
+                                    <div class="field">
+                                        <label for="ap-type">Loại giảm giá</label>
+                                        <select id="ap-type">
+                                            <option value="FIXED">Giảm số tiền cố định (FIXED)</option>
+                                            <option value="PERCENT">Giảm theo phần trăm (PERCENT)</option>
+                                            <option value="INFO">Chỉ hiển thị tin ưu đãi (INFO)</option>
+                                        </select>
+                                    </div>
+                                    <div class="field">
+                                        <label for="ap-value">Giá trị giảm (% hoặc VNĐ)</label>
+                                        <input id="ap-value" type="number" min="0" value="20000" required>
+                                    </div>
+                                    <div class="field">
+                                        <label for="ap-min">Đơn tối thiểu (VNĐ)</label>
+                                        <input id="ap-min" type="number" min="0" step="5000" value="80000" required>
+                                    </div>
+                                </div>
+                                <div class="field">
+                                    <label for="ap-title">Tiêu đề chương trình</label>
+                                    <input id="ap-title" required placeholder="Nhập mã DUT30 giảm ngay 30K">
+                                </div>
+                                <div class="field">
+                                    <label for="ap-summary">Tóm tắt</label>
+                                    <input id="ap-summary" required placeholder="Mô tả ngắn gọn trên thẻ khuyến mãi">
+                                </div>
+                                <div class="field">
+                                    <label for="ap-details">Thể lệ chi tiết</label>
+                                    <textarea id="ap-details" rows="2" placeholder="Điều kiện áp dụng chương trình…"></textarea>
+                                </div>
+                                <label class="checkbox-row"><input id="ap-active" type="checkbox" checked> <span>Đang kích hoạt</span></label>
+                                <button class="button primary panel-action" type="submit">Lưu Khuyến mãi</button>
+                                <p id="ap-feedback" class="payment-status" role="status" hidden></p>
+                            </form>
+
+                            <section class="panel">
+                                <h2>Danh sách Khuyến mãi</h2>
+                                <div class="table-scroll">
+                                    <table class="price-table">
+                                        <thead><tr><th>Chương trình</th><th>Mã / Mức giảm</th><th>Thao tác</th></tr></thead>
+                                        <tbody id="admin-promos-body"></tbody>
+                                    </table>
+                                </div>
+                            </section>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- TAB 6: BLOG & ACCOUNTS -->
+                <div id="admin-tab-blog" class="admin-tab-panel" hidden>
+                    <div class="admin-two-col">
+                        <div class="concessions-left">
+                            <form id="admin-blog-form" class="panel">
+                                <h2>Đăng / Sửa Bài viết Góc Điện Ảnh</h2>
+                                <div class="admin-form-grid">
+                                    <div class="field">
+                                        <label for="ab-id">Mã bài viết (slug)</label>
+                                        <input id="ab-id" required pattern="^[a-z0-9-]+$" placeholder="vd: review-phim-moi">
+                                    </div>
+                                    <div class="field">
+                                        <label for="ab-cat">Chuyên mục</label>
+                                        <select id="ab-cat">
+                                            <option value="review">Bình luận phim (review)</option>
+                                            <option value="blog">Blog điện ảnh (blog)</option>
+                                        </select>
+                                    </div>
+                                    <div class="field">
+                                        <label for="ab-author">Tác giả</label>
+                                        <input id="ab-author" value="Ban Biên Tập DUT Cinema" required>
+                                    </div>
+                                    <div class="field">
+                                        <label for="ab-movie">Mã phim liên kết <small>(tùy chọn)</small></label>
+                                        <input id="ab-movie" placeholder="vd: saigon">
+                                    </div>
+                                </div>
+                                <div class="field">
+                                    <label for="ab-title">Tiêu đề bài viết</label>
+                                    <input id="ab-title" required placeholder="[Review] ...">
+                                </div>
+                                <div class="field">
+                                    <label for="ab-summary">Tóm tắt</label>
+                                    <input id="ab-summary" required placeholder="Đoạn mở đầu ngắn gọn…">
+                                </div>
+                                <div class="field">
+                                    <label for="ab-content">Nội dung bài viết</label>
+                                    <textarea id="ab-content" rows="4" required placeholder="Nội dung chi tiết…"></textarea>
+                                </div>
+                                <button class="button primary panel-action" type="submit">Lưu bài viết</button>
+                                <p id="ab-feedback" class="payment-status" role="status" hidden></p>
+                            </form>
+
+                            <section class="panel">
+                                <h2>Bài viết Góc Điện Ảnh</h2>
+                                <div class="table-scroll">
+                                    <table class="price-table">
+                                        <thead><tr><th>Tiêu đề</th><th>Loại</th><th>Thao tác</th></tr></thead>
+                                        <tbody id="admin-blogs-body"></tbody>
+                                    </table>
+                                </div>
+                            </section>
+                        </div>
+
+                        <section class="panel">
+                            <h2>Quản lý Tài khoản &amp; Phân quyền</h2>
+                            <div class="table-scroll">
+                                <table class="price-table">
+                                    <thead><tr><th>Tài khoản</th><th>Hạng / Star</th><th>Chi tiêu</th><th>Quyền hạn</th></tr></thead>
+                                    <tbody id="admin-accounts-body"></tbody>
+                                </table>
+                            </div>
+                        </section>
+                    </div>
+                </div>
+            </div>
+        </section>
     </main>
 
     <!-- MODAL FOR TRAILER / BLOG / PROMO / FOOTER INFO -->
