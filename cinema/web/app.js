@@ -15,6 +15,7 @@ const formatPrice = new Intl.NumberFormat("vi-VN", { style: "currency", currency
 const seatOrder = new Intl.Collator("vi", { numeric: true });
 const filmArt = new Map(artwork.flatMap((film) => [[film.id, film], [film.title, film]]));
 const exampleFilms = new Set(["saigon", "orbit"]);
+
 const paymentLabels = {
     PENDING: "Chưa thanh toán.",
     PROCESSING: "Đang chờ kết quả thanh toán…",
@@ -26,20 +27,73 @@ const bookingLabels = {
     HELD: "Chờ xác nhận",
     CONFIRMED: "Đã cấp vé",
     EXPIRED: "Hết hạn giữ ghế",
+    CANCELLED: "Đã hủy giữ ghế",
 };
+const FOOTER_DOCS = {
+    about: {
+        tag: "Giới thiệu",
+        title: "Về DUT Cinema",
+        paragraphs: [
+            "DUT Cinema là hệ thống rạp chiếu phim và nền tảng đặt vé trực tuyến hiện đại, kết nối lịch chiếu thời gian thực tại các cụm rạp trên toàn quốc.",
+            "Khách hàng có thể tra cứu suất chiếu theo rạp, chọn ghế thường / VIP / Sweetbox, đặt kèm combo bắp nước, áp dụng mã ưu đãi và nhận vé điện tử QR ngay sau khi thanh toán.",
+        ],
+    },
+    rules: {
+        tag: "Quy chế rạp",
+        title: "Quy chế hoạt động & Quy định vào rạp",
+        paragraphs: [
+            "1. Khán giả vui lòng có mặt trước giờ chiếu 15 phút để xuất trình mã vé QR tại cửa soát vé.",
+            "2. Tuân thủ phân loại độ tuổi (P, K, T13, T16, T18) theo quy định hiện hành. Nhân viên rạp có quyền kiểm tra giấy tờ tùy thân khi cần thiết.",
+            "3. Không mang đồ ăn, thức uống từ bên ngoài vào phòng chiếu và giữ im lặng trong suốt thời gian thưởng thức phim.",
+        ],
+    },
+    privacy: {
+        tag: "Bảo mật",
+        title: "Chính sách bảo mật thông tin",
+        paragraphs: [
+            "Mật khẩu tài khoản thành viên được băm an toàn bằng Argon2id và phiên đăng nhập sử dụng cookie HttpOnly.",
+            "Lịch sử đặt vé và điểm thưởng D-Star được đồng bộ theo tài khoản của bạn. Đơn đặt với tư cách khách được lưu riêng trên trình duyệt hiện tại.",
+        ],
+    },
+    faq: {
+        tag: "Hỗ trợ",
+        title: "Câu hỏi thường gặp",
+        paragraphs: [
+            "• Thời gian giữ ghế là bao lâu? Mặc định hệ thống giữ ghế trong 5 phút để bạn hoàn tất thanh toán.",
+            "• Thanh toán trễ sau khi hết hạn giữ ghế thì sao? Hệ thống tự động kiểm tra theo thời gian máy chủ và hoàn tiền ngay nếu bạn đã thanh toán thành công sau thời hạn.",
+            "• Làm sao xem lại vé đã mua? Mở mục Vé của tôi trên thanh điều hướng hoặc dán mã đơn / mã vé để tra cứu.",
+        ],
+    },
+};
+
 const page = new URLSearchParams(location.search);
+const currentView = page.get("view") || "";
 const signingUp = page.get("mode") === "register";
 const accountUpdates = "BroadcastChannel" in window ? new BroadcastChannel("chon-suat.account") : null;
 const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 
+let catalogData = { screenings: [], coming_soon: [], cinemas: [], concessions: [], promotions: [], blog_posts: [] };
 let movies = [];
+let comingSoonMovies = [];
+let activeMovieTab = "now";
 let featured = [];
 let featuredIndex = 0;
 let featuredPlaying = !reducedMotion.matches;
 let featuredTimer = null;
+
+let currentAccount = null;
+let activeMovieDetail = null;
+let activeCinemaId = null;
+let activeCinemaCity = "Tất cả";
+let activeBlogCat = "all";
+
 let screening = null;
+let seatList = [];
 let seatOrigin = null;
 let selected = new Set();
+let concessionQty = new Map();
+let appliedPromoCode = "";
+let redeemedPoints = 0;
 let seatRefresh = null;
 let seatEvents = null;
 let seatRequest = 0;
@@ -55,17 +109,18 @@ let bookingId = page.get("booking");
 let loadingOrder = false;
 let missingOrder = false;
 let shownTickets = "";
+let modalOrigin = null;
 
 function element(tag, text, className) {
     const node = document.createElement(tag);
-    if (text) node.textContent = text;
+    if (text !== undefined && text !== null) node.textContent = String(text);
     if (className) node.className = className;
     return node;
 }
 
 function setText(id, text) {
     const node = $(id);
-    if (node.textContent !== text) node.textContent = text;
+    if (node && node.textContent !== text) node.textContent = text;
 }
 
 function notice(text = "") {
@@ -73,23 +128,47 @@ function notice(text = "") {
     setText("notice", text);
 }
 
+function report(id, message = "", state = "") {
+    const node = $(id);
+    if (!node) return;
+    node.hidden = !message;
+    node.dataset.state = state;
+    setText(id, message);
+}
+
 function showStage(step) {
-    for (const id of ["step-seats", "step-payment", "step-tickets"]) {
+    for (const id of ["step-seats", "step-concessions", "step-payment", "step-tickets"]) {
         if (id === step) $(id).setAttribute("aria-current", "step");
         else $(id).removeAttribute("aria-current");
     }
 }
 
 function show(view) {
-    for (const id of ["catalog", "seating", "order", "my-tickets", "account"]) $(id).hidden = id !== view;
-    $("booking-flow").hidden = view !== "seating" && view !== "order";
-    $("quick-book-link").hidden = view !== "catalog";
+    const sections = [
+        "catalog", "movie-detail", "cinemas-view", "promotions-view",
+        "blog-view", "seating", "concessions-step", "order", "my-tickets", "account",
+    ];
+    for (const id of sections) $(id).hidden = id !== view;
+    const inBooking = view === "seating" || view === "concessions-step" || view === "order";
+    $("booking-flow").hidden = !inBooking;
     syncFeaturedMotion();
-    if (view === "my-tickets") $("ticket-history-link").setAttribute("aria-current", "page");
-    else $("ticket-history-link").removeAttribute("aria-current");
-    if (view === "account") $("account-link").setAttribute("aria-current", "page");
-    else $("account-link").removeAttribute("aria-current");
+
+    const navMap = {
+        "nav-movies": view === "catalog" || view === "movie-detail",
+        "nav-blog": view === "blog-view",
+        "nav-promotions": view === "promotions-view",
+        "nav-cinemas": view === "cinemas-view",
+        "ticket-history-link": view === "my-tickets",
+        "account-link": view === "account",
+    };
+    for (const [id, active] of Object.entries(navMap)) {
+        const node = $(id);
+        if (!node) continue;
+        if (active) node.setAttribute("aria-current", "page");
+        else node.removeAttribute("aria-current");
+    }
     if (view === "seating") showStage("step-seats");
+    if (view === "concessions-step") showStage("step-concessions");
     if (view === "order") showStage("step-payment");
 }
 
@@ -100,6 +179,7 @@ async function api(path, options) {
     } catch {
         throw new Error("Mất kết nối. Hãy thử lại.");
     }
+    if (response.status === 204) return null;
     const data = await response.json().catch(() => null);
     if (!response.ok) {
         const message = typeof data?.detail === "string" ? data.detail : "Không thể hoàn tất yêu cầu.";
@@ -109,11 +189,9 @@ async function api(path, options) {
 }
 
 function post(path, input, key) {
-    return api(path, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Idempotency-Key": key },
-        body: JSON.stringify(input),
-    });
+    const headers = { "Content-Type": "application/json" };
+    if (key) headers["Idempotency-Key"] = key;
+    return api(path, { method: "POST", headers, body: JSON.stringify(input) });
 }
 
 function requestKey(slot, payload) {
@@ -134,6 +212,18 @@ function dateLabel(startsAt) {
     return date.charAt(0).toLocaleUpperCase("vi-VN") + date.slice(1);
 }
 
+function isWeekendVN(startsAt) {
+    const weekday = new Intl.DateTimeFormat("en-US", { ...vietnamTime, weekday: "short" }).format(new Date(startsAt));
+    return weekday === "Sat" || weekday === "Sun";
+}
+
+function seatUnitPrice(basePrice, seatType, startsAt) {
+    const standard = basePrice + (isWeekendVN(startsAt) ? 15000 : 0);
+    if (seatType === "COUPLE") return standard * 2 + 15000;
+    if (seatType === "PREMIUM") return standard + 20000;
+    return standard;
+}
+
 function screeningLabel(slot) {
     return `${shortTime(slot.starts_at)} · ${dateLabel(slot.starts_at)} · ${slot.auditorium}`;
 }
@@ -142,21 +232,109 @@ function orderUrl(id) {
     return `/?booking=${encodeURIComponent(id)}`;
 }
 
-function report(id, message = "", state = "") {
-    const node = $(id);
-    node.hidden = !message;
-    node.dataset.state = state;
-    setText(id, message);
+function searchText(value) {
+    return (value || "").toLocaleLowerCase("vi-VN").normalize("NFD").replace(/\p{M}/gu, "").replaceAll("đ", "d").trim();
 }
 
+function option(value, label) {
+    return new Option(label, value);
+}
+
+function posterUrl(movieKey) {
+    const art = filmArt.get(movieKey);
+    return art ? `/assets/films/${art.poster}` : "";
+}
+
+function openModal({ tag = "", title, bodyNodes, origin }) {
+    modalOrigin = origin || document.activeElement;
+    const tagNode = $("modal-tag");
+    tagNode.hidden = !tag;
+    tagNode.textContent = tag;
+    setText("modal-title", title);
+    $("modal-body").replaceChildren(...bodyNodes);
+    $("app-modal").hidden = false;
+    $("modal-close").focus();
+}
+
+function closeModal() {
+    if ($("app-modal").hidden) return;
+    $("app-modal").hidden = true;
+    $("modal-body").replaceChildren();
+    modalOrigin?.focus?.();
+}
+
+$("modal-close").addEventListener("click", closeModal);
+$("app-modal").addEventListener("click", (event) => {
+    if (event.target === $("app-modal")) closeModal();
+});
+document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") closeModal();
+});
+
+function openTrailerModal(movie, origin) {
+    const nodes = [];
+    if (movie.trailer_url) {
+        const frame = element("iframe", null, "trailer-frame");
+        frame.src = movie.trailer_url;
+        frame.title = `Trailer ${movie.title}`;
+        frame.allow = "accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture";
+        frame.allowFullscreen = true;
+        nodes.push(frame);
+    } else {
+        nodes.push(element("p", "Phim kinh điển hiện chưa có video trailer nhúng trực tuyến. Bạn có thể xem tóm tắt nội dung bên dưới."));
+    }
+    if (movie.synopsis) nodes.push(element("p", movie.synopsis));
+    const btn = element("a", "Xem chi tiết & Lịch chiếu", "button primary");
+    btn.href = `/?view=movie&id=${encodeURIComponent(movie.key || movie.id)}`;
+    nodes.push(btn);
+    openModal({ tag: movie.age_rating || "Trailer", title: `Trailer: ${movie.title}`, bodyNodes: nodes, origin });
+}
+
+function openInfoModal(docKey, origin) {
+    const doc = FOOTER_DOCS[docKey];
+    if (!doc) return;
+    openModal({
+        tag: doc.tag,
+        title: doc.title,
+        bodyNodes: doc.paragraphs.map((p) => element("p", p)),
+        origin,
+    });
+}
+
+document.querySelectorAll(".footer-link-btn").forEach((btn) => {
+    btn.addEventListener("click", () => openInfoModal(btn.dataset.info, btn));
+});
+
+$("mobile-menu-toggle").addEventListener("click", () => {
+    const drawer = $("mobile-drawer");
+    const open = drawer.hidden;
+    drawer.hidden = !open;
+    $("mobile-menu-toggle").setAttribute("aria-expanded", String(open));
+});
+
+/* ---------------- HOME & CATALOG ---------------- */
 function groupMovies(screenings) {
     const groups = new Map();
     for (const slot of screenings) {
-        const key = slot.movie_id ?? JSON.stringify([slot.title, slot.genre, slot.duration_minutes, slot.synopsis]);
+        const key = slot.movie_id ?? JSON.stringify([slot.title, slot.genre, slot.duration_minutes]);
         if (!groups.has(key)) {
             groups.set(key, {
-                key, title: slot.title, genre: slot.genre, duration: slot.duration_minutes,
-                art: filmArt.get(slot.movie_id ?? slot.title), screenings: [],
+                key,
+                id: slot.movie_id ?? key,
+                title: slot.title,
+                genre: slot.genre,
+                duration: slot.duration_minutes,
+                synopsis: slot.synopsis,
+                age_rating: slot.age_rating || "P",
+                rating: slot.rating || 8.5,
+                is_imax: Boolean(slot.is_imax),
+                director: slot.director || "",
+                cast_list: slot.cast_list || "",
+                country: slot.country || "Việt Nam",
+                trailer_url: slot.trailer_url || "",
+                release_date: slot.release_date || null,
+                art: filmArt.get(slot.movie_id ?? slot.title),
+                screenings: [],
             });
         }
         groups.get(key).screenings.push(slot);
@@ -178,17 +356,20 @@ function renderFeatured() {
         art.fetchPriority = "high";
         art.dataset.film = film.art.id;
         const image = `/assets/films/${film.art.banner || film.art.poster}`;
-        if (film.art.banner) {
-            art.srcset = `/assets/films/${film.art.poster} 720w, ${image} 1720w`;
-        } else {
-            visual.style.setProperty("--featured-image", `url("${image}")`);
-        }
+        if (film.art.banner) art.srcset = `/assets/films/${film.art.poster} 720w, ${image} 1720w`;
+        else visual.style.setProperty("--featured-image", `url("${image}")`);
         art.addEventListener("error", () => art.remove(), { once: true });
         art.src = image;
         visual.append(art);
     }
+    const badges = [element("span", film.age_rating, "age-badge")];
+    badges[0].dataset.age = film.age_rating;
+    if (film.is_imax) badges.push(element("span", "IMAX", "format-badge"));
+    badges.push(element("span", `★ ${Number(film.rating).toFixed(1)}`, "rating-pill"));
+    $("featured-badges").replaceChildren(...badges);
     setText("featured-title", film.title);
     setText("featured-meta", `${film.genre} · ${film.duration} phút`);
+
     const canBrowse = featured.length > 1;
     $("featured-controls").hidden = !canBrowse;
     $("featured-pagination").hidden = !canBrowse;
@@ -253,10 +434,7 @@ function syncFeaturedMotion() {
     }, 7000);
 }
 
-function option(value, label) {
-    return new Option(label, value);
-}
-
+/* QUICK BOOK BAR */
 function setQuickOptions(id, placeholder, options) {
     const select = $(id);
     select.replaceChildren(option("", placeholder), ...options);
@@ -267,32 +445,40 @@ function quickFilmScreenings() {
     return movies.find((movie) => movie.key === $("quick-film").value)?.screenings ?? [];
 }
 
-function roomKey(slot) {
-    return slot.auditorium_id ?? slot.auditorium;
+function cinemaKey(slot) {
+    return slot.cinema_id || slot.auditorium_id || slot.auditorium;
 }
 
-function quickRoomScreenings() {
-    return quickFilmScreenings().filter((slot) => roomKey(slot) === $("quick-room").value);
+function quickCinemaScreenings() {
+    return quickFilmScreenings().filter((slot) => cinemaKey(slot) === $("quick-room").value);
 }
 
 function updateQuickRooms() {
-    const rooms = new Map(quickFilmScreenings().map((slot) => [roomKey(slot), slot.auditorium]));
-    setQuickOptions("quick-room", "Chọn phòng", [...rooms].map(([key, label]) => option(key, label)));
-    if (rooms.size === 1) $("quick-room").selectedIndex = 1;
+    const cinemas = new Map(quickFilmScreenings().map((slot) => [
+        cinemaKey(slot),
+        slot.cinema_name ? `${slot.cinema_name} (${slot.city})` : slot.auditorium,
+    ]));
+    setQuickOptions("quick-room", "Chọn Rạp", [...cinemas].map(([key, label]) => option(key, label)));
+    if (cinemas.size === 1) $("quick-room").selectedIndex = 1;
     updateQuickDates();
 }
 
 function updateQuickDates() {
-    const dates = new Map(quickRoomScreenings().map((slot) => [
+    const dates = new Map(quickCinemaScreenings().map((slot) => [
         dateLabel(slot.starts_at), formatShortDate.format(new Date(slot.starts_at)),
     ]));
-    setQuickOptions("quick-date", "Chọn ngày", [...dates].map(([key, label]) => option(key, label)));
+    setQuickOptions("quick-date", "Chọn Ngày", [...dates].map(([key, label]) => option(key, label)));
+    if (dates.size === 1) $("quick-date").selectedIndex = 1;
     updateQuickScreenings();
 }
 
 function updateQuickScreenings() {
-    const slots = quickRoomScreenings().filter((slot) => dateLabel(slot.starts_at) === $("quick-date").value);
-    setQuickOptions("quick-screening", "Chọn suất", slots.map((slot) => option(slot.id, shortTime(slot.starts_at))));
+    const slots = quickCinemaScreenings().filter((slot) => dateLabel(slot.starts_at) === $("quick-date").value);
+    setQuickOptions(
+        "quick-screening",
+        "Chọn Suất",
+        slots.map((slot) => option(slot.id, `${shortTime(slot.starts_at)} · ${slot.format || "2D"}`)),
+    );
     updateQuickSubmit();
 }
 
@@ -300,68 +486,168 @@ function updateQuickSubmit() {
     $("quick-submit").disabled = !$("quick-screening").value;
 }
 
-function movieCard(movie, screenings) {
+function movieCard(movie, screenings, comingSoon = false) {
     const card = element("article", null, "movie-card");
     const poster = element("div", null, "poster");
-    poster.setAttribute("aria-hidden", "true");
     poster.append(element("span", null, "brand-mark"));
-    if (movie.art) {
-        const art = element("img");
-        art.alt = "";
-        art.loading = "lazy";
-        art.decoding = "async";
-        art.dataset.film = movie.art.id;
-        art.classList.toggle("still", Boolean(movie.art.banner));
-        art.addEventListener("error", () => art.remove(), { once: true });
-        art.src = `/assets/films/${movie.art.poster}`;
-        poster.append(art);
+    const art = movie.art || filmArt.get(movie.id ?? movie.title);
+    if (art) {
+        const img = element("img");
+        img.alt = `Poster phim ${movie.title}`;
+        img.loading = "lazy";
+        img.decoding = "async";
+        img.dataset.film = art.id;
+        img.classList.toggle("still", Boolean(art.banner));
+        img.addEventListener("error", () => img.remove(), { once: true });
+        img.src = `/assets/films/${art.poster}`;
+        poster.append(img);
     }
 
+    if (movie.is_imax) poster.append(element("span", "IMAX", "imax-tag"));
+
+    const badges = element("div", null, "poster-badges");
+    badges.append(element("span", `★ ${Number(movie.rating || 8.5).toFixed(1)}`, "rating-pill"));
+    const age = element("span", movie.age_rating || "P", "age-badge");
+    age.dataset.age = movie.age_rating || "P";
+    badges.append(age);
+    poster.append(badges);
+
+    const overlay = element("div", null, "poster-overlay");
+    const buyBtn = element("a", comingSoon ? "Chi tiết phim" : "Mua vé", "button primary");
+    buyBtn.href = `/?view=movie&id=${encodeURIComponent(movie.id)}`;
+    const trailerBtn = element("button", "Trailer", "button btn-trailer");
+    trailerBtn.type = "button";
+    trailerBtn.addEventListener("click", (event) => {
+        event.stopPropagation();
+        openTrailerModal(movie, trailerBtn);
+    });
+    overlay.append(buyBtn, trailerBtn);
+    poster.append(overlay);
+
     const info = element("div", null, "movie-info");
-    const schedule = element("div", null, "showtimes");
-    const days = new Map();
-    for (const slot of screenings) {
-        const day = dateLabel(slot.starts_at);
-        if (!days.has(day)) {
-            const group = element("div");
-            const times = element("div", null, "showtime-list");
-            group.append(element("p", day, "showtime-day"), times);
-            schedule.append(group);
-            days.set(day, times);
-        }
-        const time = shortTime(slot.starts_at);
-        const button = element("button", `${time} · ${slot.auditorium}`, "showtime");
-        button.type = "button";
-        button.setAttribute("aria-label", `Chọn ghế cho ${movie.title}, ${screeningLabel(slot)}`);
-        button.addEventListener("click", () => openScreening(slot, button));
-        days.get(day).append(button);
-    }
+    const titleBtn = element("a", movie.title, "movie-title-link");
+    titleBtn.href = `/?view=movie&id=${encodeURIComponent(movie.id)}`;
+
     info.append(
-        element("h3", movie.title),
-        element("p", `${movie.genre} · ${movie.duration} phút`, "movie-meta"),
-        schedule,
+        titleBtn,
+        element("p", `${movie.genre} · ${movie.duration || movie.duration_minutes} phút`, "movie-meta"),
     );
+
+    if (comingSoon) {
+        const releaseText = movie.release_date
+            ? `Khởi chiếu: ${formatShortDate.format(new Date(movie.release_date))}`
+            : "Sắp khởi chiếu";
+        info.append(element("p", releaseText, "soon-release"));
+    } else {
+        const schedule = element("div", null, "showtimes");
+        const days = new Map();
+        for (const slot of screenings.slice(0, 6)) {
+            const day = formatShortDate.format(new Date(slot.starts_at));
+            if (!days.has(day)) {
+                const group = element("div");
+                const times = element("div", null, "showtime-list");
+                group.append(element("p", `${day} · ${slot.cinema_name || slot.auditorium}`, "showtime-day"), times);
+                schedule.append(group);
+                days.set(day, times);
+            }
+            const button = element("button", `${shortTime(slot.starts_at)} · ${slot.format || "2D"}`, "showtime");
+            button.type = "button";
+            button.setAttribute("aria-label", `Chọn ghế cho ${movie.title}, ${screeningLabel(slot)}`);
+            button.addEventListener("click", () => openScreening(slot, button));
+            days.get(day).append(button);
+        }
+        info.append(schedule);
+    }
+
     card.append(poster, info);
     return card;
 }
 
-function searchText(value) {
-    return value.toLocaleLowerCase("vi-VN").normalize("NFD").replace(/\p{M}/gu, "").replaceAll("đ", "d").trim();
-}
-
 function renderSchedule() {
+    const city = $("schedule-city").value;
     const date = $("schedule-date").value;
     const query = searchText($("movie-search").value);
     const cards = [];
-    for (const film of movies) {
-        if (query && !searchText(film.title).includes(query)) continue;
-        const slots = date ? film.screenings.filter((slot) => dateLabel(slot.starts_at) === date) : film.screenings;
-        if (slots.length) cards.push(movieCard(film, slots));
+
+    if (activeMovieTab === "soon") {
+        for (const film of comingSoonMovies) {
+            if (query && !searchText(film.title).includes(query)) continue;
+            cards.push(movieCard(film, [], true));
+        }
+        $("screenings").replaceChildren(...cards);
+        setText("movie-count", `${cards.length} phim sắp chiếu`);
+        $("catalog-state").hidden = cards.length > 0;
+        if (!cards.length) setText("catalog-state", "Chưa có phim sắp chiếu phù hợp.");
+        return;
     }
+
+    for (const film of movies) {
+        if (activeMovieTab === "imax" && !film.is_imax) continue;
+        if (query && !searchText(film.title).includes(query)) continue;
+        let slots = film.screenings;
+        if (city) slots = slots.filter((slot) => slot.city === city);
+        if (date) slots = slots.filter((slot) => dateLabel(slot.starts_at) === date);
+        if (activeMovieTab === "imax") {
+            const imaxSlots = slots.filter((slot) => (slot.format || "").includes("IMAX"));
+            if (imaxSlots.length) slots = imaxSlots;
+        }
+        if (slots.length) cards.push(movieCard(film, slots, false));
+    }
+
     $("screenings").replaceChildren(...cards);
     setText("movie-count", `${cards.length} phim`);
     $("catalog-state").hidden = cards.length > 0 || !movies.length;
-    if (!cards.length && movies.length) setText("catalog-state", "Không tìm thấy phim phù hợp. Hãy đổi tên phim hoặc ngày chiếu.");
+    if (!cards.length && movies.length) {
+        setText("catalog-state", "Không tìm thấy phim phù hợp. Hãy đổi khu vực, tên phim hoặc ngày chiếu.");
+    }
+}
+
+function renderHomeSpotlight() {
+    const posts = (catalogData.blog_posts || []).slice(0, 3);
+    const promos = (catalogData.promotions || []).slice(0, 4);
+    if (!posts.length && !promos.length) {
+        $("home-spotlight").hidden = true;
+        return;
+    }
+    $("home-blog-list").replaceChildren(...posts.map((post) => {
+        const card = element("button", null, "spotlight-item");
+        card.type = "button";
+        card.append(
+            element("span", post.category === "review" ? "Bình luận phim" : "Blog điện ảnh", "promo-tag"),
+            element("h4", post.title),
+            element("p", `${post.author} · ${post.published_label} · ${post.views.toLocaleString("vi-VN")} lượt xem`),
+        );
+        card.addEventListener("click", () => openBlogModal(post, card));
+        return card;
+    }));
+    $("home-promo-list").replaceChildren(...promos.map((promo) => {
+        const card = element("button", null, "spotlight-promo");
+        card.type = "button";
+        card.append(
+            element("span", promo.tag, "promo-tag"),
+            element("h4", promo.title),
+        );
+        card.addEventListener("click", () => openPromoModal(promo, card));
+        return card;
+    }));
+    $("home-spotlight").hidden = false;
+}
+
+async function ensureCatalogData() {
+    if (catalogData.screenings.length || catalogData.cinemas.length) return catalogData;
+    try {
+        catalogData = await api("/api/catalog/home");
+    } catch {
+        const screenings = await api("/api/screenings");
+        catalogData = { ...catalogData, screenings };
+    }
+    movies = groupMovies(catalogData.screenings || []);
+    comingSoonMovies = (catalogData.coming_soon || []).map((m) => ({
+        ...m,
+        key: m.id,
+        art: filmArt.get(m.id ?? m.title),
+    }));
+    return catalogData;
 }
 
 async function loadCatalog() {
@@ -369,8 +655,21 @@ async function loadCatalog() {
     $("catalog-state").hidden = false;
     setText("catalog-state", "Đang tải lịch chiếu…");
     try {
-        const screenings = await api("/api/screenings");
+        catalogData = await api("/api/catalog/home").catch(async () => ({
+            ...catalogData,
+            screenings: await api("/api/screenings"),
+        }));
+        const screenings = catalogData.screenings || [];
         movies = groupMovies(screenings);
+        comingSoonMovies = (catalogData.coming_soon || []).map((m) => ({
+            ...m,
+            key: m.id,
+            art: filmArt.get(m.id ?? m.title),
+        }));
+
+        const cities = [...new Set(screenings.map((slot) => slot.city).filter(Boolean))];
+        $("schedule-city").replaceChildren(option("", "Toàn quốc"), ...cities.map((c) => option(c, c)));
+
         const dates = new Map(screenings.map((slot) => [
             dateLabel(slot.starts_at), formatShortDate.format(new Date(slot.starts_at)),
         ]));
@@ -378,10 +677,11 @@ async function loadCatalog() {
         $("date-filter").hidden = dates.size < 2;
         $("movie-search").value = "";
         $("schedule-date").replaceChildren(option("", "Tất cả ngày"), ...[...dates].map(([key, label]) => option(key, label)));
+
         renderSchedule();
+        renderHomeSpotlight();
         $("movie-count").hidden = !movies.length;
         $("dat-ve").hidden = !movies.length;
-        $("quick-book-link").href = movies.length ? "#dat-ve" : "#lich-chieu";
         if (!movies.length) {
             setText("catalog-state", "Hiện chưa có suất chiếu sắp tới.");
             $("catalog-state").hidden = false;
@@ -396,31 +696,37 @@ async function loadCatalog() {
         setupFeaturedDots();
         renderFeatured();
         syncFeaturedMotion();
-        setQuickOptions("quick-film", "Chọn phim", movies.map((movie) => option(movie.key, movie.title)));
+        setQuickOptions("quick-film", "Chọn Phim", movies.map((movie) => option(movie.key, movie.title)));
         updateQuickRooms();
         $("catalog-state").hidden = true;
     } catch (error) {
         setText("catalog-state", error.message);
-        $("quick-book-link").href = "#lich-chieu";
         $("reload-catalog").hidden = false;
     }
     if (location.hash === "#lich-chieu") $("lich-chieu").scrollIntoView();
 }
 
-$("previous-film").addEventListener("click", () => {
-    setFeaturedPlaying(false);
-    moveFeatured(-1);
+document.querySelectorAll(".movie-tabs[aria-label='Danh mục phim'] .movie-tab").forEach((tab) => {
+    tab.addEventListener("click", () => {
+        activeMovieTab = tab.dataset.tab;
+        document.querySelectorAll(".movie-tabs[aria-label='Danh mục phim'] .movie-tab").forEach((btn) => {
+            btn.setAttribute("aria-selected", String(btn === tab));
+        });
+        $("date-filter").hidden = activeMovieTab === "soon";
+        $("schedule-city").hidden = activeMovieTab === "soon";
+        renderSchedule();
+    });
 });
-$("next-film").addEventListener("click", () => {
-    setFeaturedPlaying(false);
-    moveFeatured(1);
-});
+
+$("previous-film").addEventListener("click", () => { setFeaturedPlaying(false); moveFeatured(-1); });
+$("next-film").addEventListener("click", () => { setFeaturedPlaying(false); moveFeatured(1); });
 $("featured-motion").addEventListener("click", () => setFeaturedPlaying(!featuredPlaying));
 $("featured").addEventListener("focusin", (event) => {
     if (event.target !== $("featured-motion")) setFeaturedPlaying(false);
 });
 document.addEventListener("visibilitychange", syncFeaturedMotion);
 reducedMotion.addEventListener("change", () => setFeaturedPlaying(!reducedMotion.matches));
+
 $("featured-book").addEventListener("click", () => {
     $("quick-film").value = featured[featuredIndex].key;
     updateQuickRooms();
@@ -428,19 +734,342 @@ $("featured-book").addEventListener("click", () => {
     const nextField = $("quick-room").value ? $("quick-date") : $("quick-room");
     nextField.focus({ preventScroll: true });
 });
+$("featured-detail").addEventListener("click", () => {
+    const film = featured[featuredIndex];
+    if (film) location.href = `/?view=movie&id=${encodeURIComponent(film.id)}`;
+});
+
 $("quick-film").addEventListener("change", updateQuickRooms);
 $("quick-room").addEventListener("change", updateQuickDates);
 $("quick-date").addEventListener("change", updateQuickScreenings);
 $("quick-screening").addEventListener("change", updateQuickSubmit);
+$("schedule-city").addEventListener("change", renderSchedule);
 $("schedule-date").addEventListener("change", renderSchedule);
 $("movie-search").addEventListener("input", renderSchedule);
 $("dat-ve").addEventListener("submit", (event) => {
     event.preventDefault();
-    const slot = quickRoomScreenings().find((item) => item.id === $("quick-screening").value);
+    const slot = quickCinemaScreenings().find((item) => item.id === $("quick-screening").value);
     if (slot) openScreening(slot, event.submitter || $("quick-screening"));
 });
 $("reload-catalog").addEventListener("click", loadCatalog);
 
+/* ---------------- MOVIE DETAIL ---------------- */
+function renderDetailShowtimes() {
+    if (!activeMovieDetail) return;
+    const city = $("detail-city").value;
+    const date = $("detail-date").value;
+    let slots = activeMovieDetail.screenings || [];
+    if (city) slots = slots.filter((s) => s.city === city);
+    if (date) slots = slots.filter((s) => dateLabel(s.starts_at) === date);
+
+    const byCinema = new Map();
+    for (const slot of slots) {
+        const cname = slot.cinema_name || slot.auditorium;
+        if (!byCinema.has(cname)) byCinema.set(cname, { city: slot.city || "", formats: new Map() });
+        const fmt = slot.format || "2D Phụ đề";
+        if (!byCinema.get(cname).formats.has(fmt)) byCinema.get(cname).formats.set(fmt, []);
+        byCinema.get(cname).formats.get(fmt).push(slot);
+    }
+
+    const cards = [];
+    for (const [cinemaName, info] of byCinema) {
+        const card = element("article", null, "cinema-schedule-card");
+        const head = element("div", null, "cinema-schedule-head");
+        head.append(element("h3", cinemaName), element("span", info.city, "muted"));
+        card.append(head);
+        for (const [fmt, fmtSlots] of info.formats) {
+            const row = element("div", null, "format-row");
+            row.append(element("span", fmt, "format-row-label"));
+            const list = element("div", null, "showtime-list");
+            for (const slot of fmtSlots) {
+                const btn = element("button", `${shortTime(slot.starts_at)} · ${formatShortDate.format(new Date(slot.starts_at))}`, "showtime");
+                btn.type = "button";
+                btn.addEventListener("click", () => openScreening(slot, btn));
+                list.append(btn);
+            }
+            row.append(list);
+            card.append(row);
+        }
+        cards.push(card);
+    }
+    $("detail-cinema-list").replaceChildren(...cards);
+    $("detail-showtimes-empty").hidden = cards.length > 0;
+}
+
+async function loadMovieDetail(movieId) {
+    show("movie-detail");
+    $("detail-content").hidden = true;
+    report("detail-status", "Đang tải thông tin phim…");
+    try {
+        await ensureCatalogData();
+        const movie = await api(`/api/movies/${encodeURIComponent(movieId)}`);
+        activeMovieDetail = movie;
+        const poster = $("detail-poster");
+        poster.replaceChildren();
+        const src = posterUrl(movie.id ?? movie.title);
+        if (src) {
+            const img = element("img");
+            img.alt = `Poster ${movie.title}`;
+            img.src = src;
+            poster.append(img);
+        }
+
+        const badges = [element("span", movie.age_rating || "P", "age-badge")];
+        badges[0].dataset.age = movie.age_rating || "P";
+        if (movie.is_imax) badges.push(element("span", "IMAX", "format-badge"));
+        badges.push(element("span", `★ ${Number(movie.rating || 8.5).toFixed(1)}`, "rating-pill"));
+        $("detail-badges").replaceChildren(...badges);
+
+        setText("detail-title", movie.title);
+        setText("detail-meta", `${movie.genre} · ${movie.duration_minutes} phút`);
+        setText("detail-synopsis", movie.synopsis || "Chưa có mô tả chi tiết.");
+
+        const facts = [
+            ["Quốc gia", movie.country || "Quốc tế"],
+            ["Khởi chiếu", movie.release_date ? formatShortDate.format(new Date(movie.release_date)) : "Đang chiếu"],
+            ["Đạo diễn", movie.director || "Đang cập nhật"],
+            ["Diễn viên", movie.cast_list || "Đang cập nhật"],
+        ];
+        $("detail-facts").replaceChildren(...facts.map(([k, v]) => {
+            const row = element("div");
+            row.append(element("dt", `${k}:`), element("dd", v));
+            return row;
+        }));
+
+        const trailerBtn = $("detail-trailer-btn");
+        trailerBtn.hidden = false;
+        trailerBtn.onclick = () => openTrailerModal(movie, trailerBtn);
+
+        const cities = [...new Set((movie.screenings || []).map((s) => s.city).filter(Boolean))];
+        $("detail-city").replaceChildren(option("", "Toàn quốc"), ...cities.map((c) => option(c, c)));
+        const dates = new Map((movie.screenings || []).map((s) => [
+            dateLabel(s.starts_at), formatShortDate.format(new Date(s.starts_at)),
+        ]));
+        $("detail-date").replaceChildren(option("", "Tất cả ngày"), ...[...dates].map(([k, v]) => option(k, v)));
+
+        renderDetailShowtimes();
+        report("detail-status");
+        $("detail-content").hidden = false;
+    } catch (error) {
+        report("detail-status", error.message, "ERROR");
+    }
+}
+
+$("detail-city").addEventListener("change", renderDetailShowtimes);
+$("detail-date").addEventListener("change", renderDetailShowtimes);
+$("detail-back").addEventListener("click", () => { location.href = "/"; });
+
+/* ---------------- CINEMAS & PRICING ---------------- */
+function selectCinema(cinemaId) {
+    activeCinemaId = cinemaId;
+    const cinema = (catalogData.cinemas || []).find((c) => c.id === cinemaId);
+    if (!cinema) return;
+
+    document.querySelectorAll("#cinema-cards .cinema-card").forEach((card) => {
+        if (card.dataset.cinemaId === cinemaId) card.setAttribute("aria-current", "true");
+        else card.removeAttribute("aria-current");
+    });
+
+    setText("cinema-detail-name", cinema.name);
+    setText("cinema-detail-address", `${cinema.address} · Hotline: ${cinema.hotline} · Mở cửa: ${cinema.opening_hours}`);
+    $("cinema-detail-meta").replaceChildren(...(cinema.formats || []).map((fmt) => element("span", fmt, "format-badge")));
+
+    $("cinema-price-body").replaceChildren(...(cinema.price_table || []).map((row) => {
+        const tr = element("tr");
+        tr.append(
+            element("td", row.label),
+            element("td", row.standard),
+            element("td", row.vip),
+            element("td", row.couple),
+        );
+        return tr;
+    }));
+
+    const cinemaScreenings = (catalogData.screenings || []).filter((s) => s.cinema_id === cinema.id);
+    const byMovie = new Map();
+    for (const slot of cinemaScreenings) {
+        if (!byMovie.has(slot.movie_id)) byMovie.set(slot.movie_id, { title: slot.title, slots: [] });
+        byMovie.get(slot.movie_id).slots.push(slot);
+    }
+    const showtimeNodes = [];
+    for (const [, info] of byMovie) {
+        const box = element("div", null, "cinema-movie-row");
+        box.append(element("h4", info.title));
+        const list = element("div", null, "showtime-list");
+        for (const slot of info.slots.slice(0, 8)) {
+            const btn = element("button", `${shortTime(slot.starts_at)} · ${formatShortDate.format(new Date(slot.starts_at))} · ${slot.format || "2D"}`, "showtime");
+            btn.type = "button";
+            btn.addEventListener("click", () => openScreening(slot, btn));
+            list.append(btn);
+        }
+        box.append(list);
+        showtimeNodes.push(box);
+    }
+    $("cinema-showtimes-list").replaceChildren(...(showtimeNodes.length
+        ? showtimeNodes
+        : [element("p", "Hiện chưa có suất chiếu sắp tới tại rạp này.", "muted")]));
+    $("cinema-detail-panel").hidden = false;
+}
+
+function renderCinemaCards() {
+    const cinemas = (catalogData.cinemas || []).filter(
+        (c) => activeCinemaCity === "Tất cả" || c.city === activeCinemaCity,
+    );
+    $("cinema-cards").replaceChildren(...cinemas.map((cinema) => {
+        const card = element("button", null, "cinema-card");
+        card.type = "button";
+        card.dataset.cinemaId = cinema.id;
+        card.append(
+            element("h3", cinema.name),
+            element("p", `${cinema.city} · ${cinema.address}`),
+            element("p", `Định dạng: ${(cinema.formats || []).join(", ")}`),
+        );
+        card.addEventListener("click", () => selectCinema(cinema.id));
+        return card;
+    }));
+    if (cinemas.length) {
+        const target = cinemas.some((c) => c.id === activeCinemaId) ? activeCinemaId : cinemas[0].id;
+        selectCinema(target);
+    } else {
+        $("cinema-detail-panel").hidden = true;
+    }
+}
+
+async function loadCinemasView() {
+    show("cinemas-view");
+    await ensureCatalogData();
+    const cities = ["Tất cả", ...new Set((catalogData.cinemas || []).map((c) => c.city))];
+    $("cinema-city-tabs").replaceChildren(...cities.map((city) => {
+        const pill = element("button", city, "city-pill");
+        pill.type = "button";
+        pill.setAttribute("aria-selected", String(city === activeCinemaCity));
+        pill.addEventListener("click", () => {
+            activeCinemaCity = city;
+            document.querySelectorAll("#cinema-city-tabs .city-pill").forEach((b) => {
+                b.setAttribute("aria-selected", String(b === pill));
+            });
+            renderCinemaCards();
+        });
+        return pill;
+    }));
+    renderCinemaCards();
+}
+
+/* ---------------- PROMOTIONS & BLOG ---------------- */
+function openPromoModal(promo, origin) {
+    const nodes = [
+        element("p", promo.summary),
+        element("p", promo.details),
+        element("p", `Thời gian áp dụng: ${promo.valid_until}`, "muted"),
+    ];
+    if (promo.code) {
+        const row = element("div", null, "promo-code-row");
+        row.append(element("span", "Mã ưu đãi:"), element("code", promo.code));
+        nodes.push(row);
+    }
+    const cta = element("a", "Đặt vé áp dụng ngay", "button primary");
+    cta.href = "/#lich-chieu";
+    nodes.push(cta);
+    openModal({ tag: promo.tag, title: promo.title, bodyNodes: nodes, origin });
+}
+
+async function loadPromotionsView() {
+    show("promotions-view");
+    await ensureCatalogData();
+    $("promotions-grid").replaceChildren(...(catalogData.promotions || []).map((promo) => {
+        const card = element("article", null, "promo-card");
+        const top = element("div");
+        top.append(
+            element("span", promo.tag, "promo-tag"),
+            element("h2", promo.title),
+            element("p", promo.summary),
+        );
+        const bottom = element("div", null, "concessions-left");
+        if (promo.code) {
+            const codeBox = element("div", null, "promo-code-row");
+            codeBox.append(element("code", promo.code));
+            const copyBtn = element("button", "Sao chép", "button secondary");
+            copyBtn.type = "button";
+            copyBtn.style.minHeight = "34px";
+            copyBtn.addEventListener("click", async () => {
+                try {
+                    await navigator.clipboard.writeText(promo.code);
+                    copyBtn.textContent = "Đã chép";
+                } catch {
+                    copyBtn.textContent = promo.code;
+                }
+            });
+            codeBox.append(copyBtn);
+            bottom.append(codeBox);
+        }
+        const actions = element("div", null, "promo-actions");
+        const detailBtn = element("button", "Xem thể lệ", "button secondary");
+        detailBtn.type = "button";
+        detailBtn.addEventListener("click", () => openPromoModal(promo, detailBtn));
+        actions.append(detailBtn);
+        bottom.append(actions);
+        card.append(top, bottom);
+        return card;
+    }));
+}
+
+function openBlogModal(post, origin) {
+    const nodes = [
+        element("p", `${post.author} · ${post.published_label} · ${post.views.toLocaleString("vi-VN")} lượt xem`, "muted"),
+        element("p", post.summary),
+        element("p", post.content),
+    ];
+    if (post.movie_id) {
+        const link = element("a", "Xem lịch chiếu & Đặt vé phim này", "button primary");
+        link.href = `/?view=movie&id=${encodeURIComponent(post.movie_id)}`;
+        nodes.push(link);
+    }
+    openModal({
+        tag: post.category === "review" ? "Bình luận phim" : "Blog điện ảnh",
+        title: post.title,
+        bodyNodes: nodes,
+        origin,
+    });
+}
+
+function renderBlogCards() {
+    const posts = (catalogData.blog_posts || []).filter(
+        (p) => activeBlogCat === "all" || p.category === activeBlogCat,
+    );
+    $("blog-grid").replaceChildren(...posts.map((post) => {
+        const card = element("article", null, "blog-card");
+        const top = element("div");
+        top.append(
+            element("span", post.category === "review" ? "Bình luận phim" : "Blog điện ảnh", "promo-tag"),
+            element("h2", post.title),
+            element("p", post.summary),
+        );
+        const foot = element("div", null, "blog-meta");
+        foot.append(element("span", `${post.author} · ${post.published_label}`), element("span", `${post.views.toLocaleString("vi-VN")} lượt xem`));
+        const readBtn = element("button", "Đọc bài viết", "button secondary");
+        readBtn.type = "button";
+        readBtn.addEventListener("click", () => openBlogModal(post, readBtn));
+        card.append(top, foot, readBtn);
+        return card;
+    }));
+}
+
+async function loadBlogView() {
+    show("blog-view");
+    await ensureCatalogData();
+    document.querySelectorAll(".blog-tabs .movie-tab").forEach((tab) => {
+        tab.onclick = () => {
+            activeBlogCat = tab.dataset.blogCat;
+            document.querySelectorAll(".blog-tabs .movie-tab").forEach((b) => {
+                b.setAttribute("aria-selected", String(b === tab));
+            });
+            renderBlogCards();
+        };
+    });
+    renderBlogCards();
+}
+
+/* ---------------- BOOKING STEP 1: SEATING ---------------- */
 function stopSeatUpdates() {
     clearInterval(seatRefresh);
     seatEvents?.close();
@@ -467,15 +1096,21 @@ function renderBookingPoster(id, filmKey) {
 function openScreening(slot, origin) {
     stopSeatUpdates();
     screening = slot;
+    seatList = [];
     seatOrigin = origin;
     selected = new Set();
+    concessionQty = new Map();
+    appliedPromoCode = "";
+    redeemedPoints = 0;
     pendingCheckout = false;
     seatSignature = null;
-    $("customer").value = "";
+    $("customer").value = currentAccount?.full_name || "";
     $("reload-seats").hidden = true;
     $("seats").replaceChildren(element("p", "Đang tải sơ đồ ghế…", "seat-message"));
     setText("seat-availability", "");
+    setText("seating-format-badge", slot.format || "2D Phụ đề");
     setText("movie-title", slot.title);
+    setText("movie-cinema", slot.cinema_name || "DUT Nguyễn Du");
     setText("movie-details", screeningLabel(slot));
     renderBookingPoster("seating-poster", slot.movie_id ?? slot.title);
     show("seating");
@@ -500,6 +1135,7 @@ async function refreshSeats() {
         const signature = JSON.stringify(seats);
         if (signature === seatSignature) return;
         seatSignature = signature;
+        seatList = seats;
         renderSeats(seats);
     } catch (error) {
         if (screening?.id !== id || request !== seatRequest || checkoutBusy || pendingCheckout) return;
@@ -514,16 +1150,52 @@ function orderedSelection() {
     return [...selected].sort(seatOrder.compare);
 }
 
+function currentSeatsTotal() {
+    if (!screening) return 0;
+    const byLabel = new Map(seatList.map((s) => [s.label, s]));
+    let total = 0;
+    for (const label of selected) {
+        const seat = byLabel.get(label);
+        total += seatUnitPrice(screening.base_price || 90000, seat?.seat_type || "STANDARD", screening.starts_at);
+    }
+    return total;
+}
+
+function hasSingleGapWarning() {
+    const byRow = new Map();
+    for (const seat of seatList) {
+        if (seat.seat_type === "COUPLE") continue;
+        const match = seat.label.match(/^([A-Z]+)(\d+)$/);
+        if (!match) continue;
+        const [, row, numStr] = match;
+        if (!byRow.has(row)) byRow.set(row, []);
+        byRow.get(row).push({
+            num: Number(numStr),
+            taken: seat.status !== "AVAILABLE" || selected.has(seat.label),
+            selected: selected.has(seat.label),
+        });
+    }
+    for (const items of byRow.values()) {
+        items.sort((a, b) => a.num - b.num);
+        if (!items.some((item) => item.selected)) continue;
+        for (let i = 0; i < items.length; i += 1) {
+            if (items[i].taken) continue;
+            const leftTaken = i === 0 || items[i - 1].taken;
+            const rightTaken = i === items.length - 1 || items[i + 1].taken;
+            const nearSelected = (i > 0 && items[i - 1].selected) || (i < items.length - 1 && items[i + 1].selected);
+            if (leftTaken && rightTaken && nearSelected) return true;
+        }
+    }
+    return false;
+}
+
 function renderSelection() {
     $("selection").replaceChildren(...(selected.size
         ? orderedSelection().map((label) => element("span", label, "seat-chip"))
         : ["Chưa chọn ghế"]));
-    const hold = $("hold");
-    hold.disabled = checkoutBusy || !selected.size;
-    const label = checkoutBusy ? "Đang giữ ghế…" : pendingCheckout ? "Thử giữ ghế lại" : "Giữ ghế và tiếp tục";
-    setText("hold", label);
+    setText("seat-subtotal", formatPrice.format(currentSeatsTotal()));
+    $("to-concessions").disabled = checkoutBusy || !selected.size;
     $("customer").disabled = checkoutBusy || pendingCheckout;
-    $("checkout").setAttribute("aria-busy", String(checkoutBusy));
 }
 
 function renderSeats(seats) {
@@ -548,8 +1220,11 @@ function renderSeats(seats) {
         if (button.disabled && selected.delete(seat.label)) occupiedSelection.push(seat.label);
         const status = seat.status === "SOLD" ? "Đã bán" : seat.status === "HELD" ? "Đang giữ" : "Trống";
         const premium = seat.seat_type === "PREMIUM";
-        button.setAttribute("aria-label", `${seat.label}, ${status}${premium ? ", cao cấp" : ""}`);
+        const couple = seat.seat_type === "COUPLE";
+        const typeLabel = couple ? ", ghế đôi Sweetbox" : premium ? ", VIP" : "";
+        button.setAttribute("aria-label", `${seat.label}, ${status}${typeLabel}`);
         button.classList.toggle("premium", premium);
+        button.classList.toggle("couple", couple);
         button.classList.toggle("unavailable", button.disabled);
         function update() {
             const pressed = selected.has(seat.label);
@@ -562,9 +1237,9 @@ function renderSeats(seats) {
             if (selected.has(seat.label)) selected.delete(seat.label);
             else if (selected.size < 8) selected.add(seat.label);
             else return notice("Mỗi đơn giữ tối đa 8 ghế.");
-            notice();
             update();
             renderSelection();
+            notice(hasSingleGapWarning() ? "Lưu ý: Lựa chọn hiện tại đang để trống 1 ghế lẻ bên cạnh." : "");
         });
         rows.get(row).append(button);
     }
@@ -589,15 +1264,171 @@ $("back").addEventListener("click", () => {
     seatOrigin?.focus();
 });
 
+/* ---------------- BOOKING STEP 2: CONCESSIONS & PROMOTIONS ---------------- */
+function concessionsTotal() {
+    let total = 0;
+    for (const item of catalogData.concessions || []) {
+        total += (concessionQty.get(item.id) || 0) * item.price;
+    }
+    return total;
+}
+
+function previewDiscount(subtotal) {
+    let discount = 0;
+    let promoError = "";
+    const code = appliedPromoCode.trim().toUpperCase();
+    if (code) {
+        const promo = (catalogData.promotions || []).find((p) => (p.code || "").toUpperCase() === code);
+        if (!promo) promoError = "Mã khuyến mãi không hợp lệ.";
+        else if (subtotal < promo.min_amount) promoError = `Mã ${code} áp dụng cho đơn từ ${formatPrice.format(promo.min_amount)}.`;
+        else if (promo.discount_type === "PERCENT") discount += Math.floor((subtotal * promo.discount_value) / 100);
+        else if (promo.discount_type === "FIXED") discount += promo.discount_value;
+    }
+    const pointsDiscount = redeemedPoints * 1000;
+    discount = Math.min(discount + pointsDiscount, Math.max(0, subtotal - 10000));
+    return { discount, promoError };
+}
+
+function renderConcessionsSummary() {
+    const seatsPrice = currentSeatsTotal();
+    const comboPrice = concessionsTotal();
+    const subtotal = seatsPrice + comboPrice;
+    const { discount, promoError } = previewDiscount(subtotal);
+    const grandTotal = Math.max(10000, subtotal - discount);
+
+    setText("concessions-seats-list", orderedSelection().join(", "));
+    setText("summary-seats-price", formatPrice.format(seatsPrice));
+    setText("summary-concessions-price", formatPrice.format(comboPrice));
+    $("summary-discount-row").hidden = discount <= 0;
+    setText("summary-discount-price", `-${formatPrice.format(discount)}`);
+    setText("summary-grand-total", formatPrice.format(grandTotal));
+
+    if (promoError) report("promo-feedback", promoError, "ERROR");
+    else if (appliedPromoCode) report("promo-feedback", `Đã áp dụng mã ${appliedPromoCode}.`);
+    else report("promo-feedback");
+
+    $("hold").disabled = checkoutBusy;
+    setText("hold", checkoutBusy ? "Đang giữ ghế…" : pendingCheckout ? "Thử giữ ghế lại" : "Giữ ghế & Thanh toán");
+}
+
+function renderConcessionsStep() {
+    setText("concessions-movie-title", screening.title);
+    setText("concessions-movie-details", `${screening.cinema_name || "DUT Nguyễn Du"} · ${screeningLabel(screening)}`);
+    renderBookingPoster("concessions-poster", screening.movie_id ?? screening.title);
+
+    $("concession-list").replaceChildren(...(catalogData.concessions || []).map((item) => {
+        const row = element("article", null, "concession-item");
+        const info = element("div", null, "concession-info");
+        const titleRow = element("div", null, "concession-title-row");
+        titleRow.append(element("h3", item.name));
+        if (item.badge) titleRow.append(element("span", item.badge, "promo-tag"));
+        info.append(titleRow, element("p", item.description), element("span", formatPrice.format(item.price), "concession-price"));
+
+        const ctrl = element("div", null, "qty-control");
+        const dec = element("button", "−", "qty-btn");
+        dec.type = "button";
+        dec.setAttribute("aria-label", `Giảm ${item.name}`);
+        const qtySpan = element("span", String(concessionQty.get(item.id) || 0), "qty-value");
+        const inc = element("button", "+", "qty-btn");
+        inc.type = "button";
+        inc.setAttribute("aria-label", `Tăng ${item.name}`);
+        dec.onclick = () => {
+            const next = Math.max(0, (concessionQty.get(item.id) || 0) - 1);
+            concessionQty.set(item.id, next);
+            qtySpan.textContent = String(next);
+            renderConcessionsSummary();
+        };
+        inc.onclick = () => {
+            const next = Math.min(20, (concessionQty.get(item.id) || 0) + 1);
+            concessionQty.set(item.id, next);
+            qtySpan.textContent = String(next);
+            renderConcessionsSummary();
+        };
+        ctrl.append(dec, qtySpan, inc);
+        row.append(info, ctrl);
+        return row;
+    }));
+
+    const codePromos = (catalogData.promotions || []).filter((p) => p.code);
+    $("promo-chips").replaceChildren(...codePromos.map((p) => {
+        const chip = element("button", p.code, "promo-chip");
+        chip.type = "button";
+        chip.title = p.title;
+        chip.onclick = () => {
+            $("promo-code-input").value = p.code;
+            appliedPromoCode = p.code;
+            renderConcessionsSummary();
+        };
+        return chip;
+    }));
+    $("promo-code-input").value = appliedPromoCode;
+
+    const canRedeem = Boolean(currentAccount && currentAccount.points > 0);
+    $("redeem-points-box").hidden = !canRedeem;
+    if (canRedeem) {
+        setText("redeem-available", String(currentAccount.points));
+        $("redeem-points-input").max = String(currentAccount.points);
+        $("redeem-points-input").value = String(redeemedPoints);
+    }
+
+    renderConcessionsSummary();
+}
+
 $("checkout").addEventListener("submit", async (event) => {
     event.preventDefault();
-    if (checkoutBusy || !selected.size) return;
+    if (!selected.size || !screening) return;
+    notice();
+    await ensureCatalogData();
+    show("concessions-step");
+    renderConcessionsStep();
+    window.scrollTo(0, 0);
+    $("concessions-heading").focus({ preventScroll: true });
+});
+
+$("back-to-seats").addEventListener("click", () => {
+    notice();
+    show("seating");
+    $("seating-heading").focus({ preventScroll: true });
+});
+
+$("apply-promo-btn").addEventListener("click", () => {
+    appliedPromoCode = $("promo-code-input").value.trim().toUpperCase();
+    renderConcessionsSummary();
+});
+
+$("redeem-points-input").addEventListener("input", () => {
+    const maxPts = currentAccount?.points || 0;
+    redeemedPoints = Math.max(0, Math.min(maxPts, Math.floor(Number($("redeem-points-input").value) || 0)));
+    $("redeem-points-input").value = String(redeemedPoints);
+    renderConcessionsSummary();
+});
+
+$("redeem-max-btn").addEventListener("click", () => {
+    const maxPts = currentAccount?.points || 0;
+    const subtotal = currentSeatsTotal() + concessionsTotal();
+    const maxUseful = Math.max(0, Math.floor((subtotal - 10000) / 1000));
+    redeemedPoints = Math.min(maxPts, maxUseful);
+    $("redeem-points-input").value = String(redeemedPoints);
+    renderConcessionsSummary();
+});
+
+$("hold").addEventListener("click", async () => {
+    if (checkoutBusy || !selected.size || !screening) return;
+    const concessions = [];
+    for (const [id, quantity] of concessionQty.entries()) {
+        if (quantity > 0) concessions.push({ id, quantity });
+    }
     const payload = {
-        screening_id: screening.id, seats: orderedSelection(), customer_name: $("customer").value.trim() || null,
+        screening_id: screening.id,
+        seats: orderedSelection(),
+        customer_name: $("customer").value.trim() || null,
+        concessions,
+        promo_code: appliedPromoCode || null,
+        redeem_points: redeemedPoints || 0,
     };
     checkoutBusy = true;
-    $("back").disabled = true;
-    renderSelection();
+    $("back-to-seats").disabled = true;
+    renderConcessionsSummary();
     notice();
     try {
         const result = await post("/api/checkout", payload, requestKey("checkout", payload));
@@ -609,14 +1440,18 @@ $("checkout").addEventListener("submit", async (event) => {
         pendingCheckout = !error.status || error.status >= 500;
         notice(pendingCheckout ? `${error.message} Bấm “Thử giữ ghế lại” để tiếp tục yêu cầu.` : error.message);
         if (!pendingCheckout) sessionStorage.removeItem("checkout");
+        if (error.status === 409) {
+            show("seating");
+            void refreshSeats();
+        }
     } finally {
         checkoutBusy = false;
-        $("back").disabled = false;
-        renderSelection();
-        if (!bookingId && !pendingCheckout) void refreshSeats();
+        $("back-to-seats").disabled = false;
+        if (!$("concessions-step").hidden) renderConcessionsSummary();
     }
 });
 
+/* ---------------- BOOKING STEP 3 & 4: PAYMENT & TICKETS ---------------- */
 function updateTimer() {
     if (!booking) return;
     const remaining = Math.max(0, Math.ceil((Date.parse(booking.expires_at) - Date.now() - clockOffset) / 1000));
@@ -628,7 +1463,7 @@ function updateTimer() {
     $("outcome").disabled = paymentBusy;
     $("delay").disabled = paymentBusy;
     $("simulate").setAttribute("aria-busy", String(paymentBusy));
-    setText("pay", paymentBusy ? "Đang gửi thanh toán…" : payment?.status === "DECLINED" ? "Thử thanh toán lại" : "Chạy thanh toán");
+    setText("pay", paymentBusy ? "Đang gửi thanh toán…" : payment?.status === "DECLINED" ? "Thử thanh toán lại" : "Thanh toán ngay");
 }
 
 function setBooking(value) {
@@ -653,6 +1488,7 @@ function ticketCard(ticket, details, showLink = true) {
     info.append(
         element("p", `Ghế ${ticket.seat}`, "ticket-seat"),
         element(showLink ? "h2" : "h3", details.movie_title),
+        element("p", `${details.cinema_name || "DUT Nguyễn Du"} · ${details.screening_format || "2D"}`),
         element("p", screeningLabel(details)),
     );
     if (ticket.customer_name) info.append(element("p", ticket.customer_name, "ticket-holder"));
@@ -679,39 +1515,72 @@ function renderOrderAccess() {
     $("order-access").hidden = false;
     $("save-order").hidden = saved;
     $("order-saved").hidden = !saved;
+    $("print-tickets").hidden = booking.status !== "CONFIRMED";
     setText("order-code", booking.id);
 }
 
 function renderOrder() {
     const confirmed = booking.status === "CONFIRMED";
     const expired = booking.status === "EXPIRED";
+    const cancelled = booking.status === "CANCELLED";
     const tickets = booking.tickets || [];
     const refunded = payment?.status === "REFUNDED";
-    const state = expired && !refunded ? "EXPIRED" : payment?.status;
+    const state = (expired || cancelled) && !refunded ? booking.status : payment?.status;
+
     $("order-tools").hidden = confirmed;
     $("order-summary").hidden = false;
-    $("retry-booking").hidden = !expired;
+    $("retry-booking").hidden = !expired && !cancelled;
     $("ticket-return").hidden = !confirmed;
     $("order-intro").hidden = !confirmed;
     showStage(confirmed ? "step-tickets" : "step-payment");
     setText("order-heading", confirmed ? "Vé của bạn" : "Thanh toán");
     if (confirmed) setText("order-intro", `${tickets.length} vé điện tử · Đặt vé thành công`);
+
+    setText("order-format-badge", booking.screening_format || "2D Phụ đề");
     setText("order-title", booking.movie_title);
+    setText("order-cinema", booking.cinema_name || "DUT Nguyễn Du");
     setText("order-details", screeningLabel(booking));
     renderBookingPoster("order-poster", booking.movie_title);
     setText("order-seats", booking.seats.join(", "));
+
+    const concessions = booking.concessions || [];
+    $("order-concessions-row").hidden = concessions.length === 0;
+    if (concessions.length) {
+        setText("order-concessions", concessions.map((c) => `${c.name} ×${c.quantity}`).join(", "));
+    }
+    $("order-discount-row").hidden = !(booking.discount_amount > 0);
+    if (booking.discount_amount > 0) {
+        setText("order-discount", `-${formatPrice.format(booking.discount_amount)}`);
+    }
     setText("amount", formatPrice.format(booking.amount));
+
     const status = $("payment-status");
     status.dataset.state = state || "";
     status.hidden = false;
-    setText("payment-status", state === "EXPIRED" ? "Đơn đã hết hạn giữ ghế." : paymentLabels[state] || "Đang tải trạng thái thanh toán…");
-    $("simulate").hidden = booking.status !== "HELD" || !["PENDING", "DECLINED"].includes(payment?.status);
+    const statusText = state === "EXPIRED"
+        ? "Đơn đã hết hạn giữ ghế."
+        : state === "CANCELLED"
+            ? "Bạn đã hủy giữ ghế. Các ghế đã được mở lại."
+            : paymentLabels[state] || "Đang tải trạng thái thanh toán…";
+    setText("payment-status", statusText);
+
+    const canSimulate = booking.status === "HELD" && ["PENDING", "DECLINED"].includes(payment?.status);
+    $("simulate").hidden = !canSimulate;
+    $("cancel-hold").hidden = !canSimulate;
     updateTimer();
     renderOrderAccess();
+
     const signature = tickets.map((ticket) => ticket.code).join(",");
     if (signature !== shownTickets) {
         shownTickets = signature;
         $("tickets").replaceChildren(...tickets.map((ticket) => ticketCard(ticket, booking)));
+    }
+
+    $("concession-voucher").hidden = !(confirmed && concessions.length);
+    if (confirmed && concessions.length) {
+        setText("voucher-cinema", `Quầy Bắp Nước · ${booking.cinema_name || "DUT Nguyễn Du"}`);
+        setText("voucher-items", concessions.map((c) => `${c.name} × ${c.quantity}`).join(" · "));
+        setText("voucher-code", `F&B-${booking.id.slice(0, 8).toUpperCase()}`);
     }
 }
 
@@ -765,6 +1634,21 @@ $("simulate").addEventListener("submit", async (event) => {
     }
 });
 
+$("cancel-hold").addEventListener("click", async () => {
+    const btn = $("cancel-hold");
+    btn.disabled = true;
+    try {
+        setBooking(await api(`/api/bookings/${encodeURIComponent(bookingId)}/cancel`, { method: "POST" }));
+        renderOrder();
+        void loadAccount();
+    } catch (error) {
+        notice(error.message);
+    } finally {
+        btn.disabled = false;
+    }
+});
+
+$("print-tickets").addEventListener("click", () => window.print());
 $("reload-order").addEventListener("click", refreshOrder);
 
 $("save-order").addEventListener("click", async () => {
@@ -792,6 +1676,7 @@ $("copy-order").addEventListener("click", async () => {
     }
 });
 
+/* ---------------- MY TICKETS ---------------- */
 function savedOrderRow(order) {
     const row = element("li", null, "history-row");
     const info = element("div", null, "history-info");
@@ -800,8 +1685,8 @@ function savedOrderRow(order) {
     info.append(
         state,
         element("h3", order.movie_title),
-        element("p", screeningLabel(order), "muted"),
-        element("p", `Ghế ${order.seats.join(", ")}`, "history-seats"),
+        element("p", `${order.cinema_name || "DUT Nguyễn Du"} · ${screeningLabel(order)}`, "muted"),
+        element("p", `Ghế ${order.seats.join(", ")}${order.amount ? ` · ${formatPrice.format(order.amount)}` : ""}`, "history-seats"),
     );
     const actions = element("div", null, "history-actions");
     const link = element("a", order.status === "CONFIRMED" ? "Xem vé" : "Mở đơn", "button secondary history-open");
@@ -835,7 +1720,7 @@ async function loadSavedOrders() {
         const { scope, bookings: orders } = await api("/api/my-bookings");
         const signedIn = scope === "account";
         setText("saved-orders-scope", signedIn
-            ? "Các đơn được đồng bộ theo tài khoản của bạn."
+            ? "Các đơn được đồng bộ theo tài khoản thành viên của bạn."
             : "Các đơn đặt với vai trò khách gắn với trình duyệt này.");
         $("saved-orders-scope").hidden = false;
         $("history-sign-in").hidden = signedIn;
@@ -894,9 +1779,10 @@ $("lookup-code").addEventListener("input", () => {
     report("lookup-status");
 });
 
+/* ---------------- ACCOUNT & D-STAR MEMBERSHIP ---------------- */
 function configureSignIn() {
     if (!signingUp) return;
-    setText("auth-form-title", "Tạo tài khoản");
+    setText("auth-form-title", "Tạo tài khoản thành viên");
     setText("auth-submit", "Đăng ký");
     setText("auth-mode-link", "Đã có tài khoản? Đăng nhập");
     $("auth-mode-link").href = "/?view=account";
@@ -908,6 +1794,35 @@ function configureSignIn() {
     $("password").minLength = 15;
 }
 
+function renderMemberProfile(profile) {
+    setText("member-tier-badge", profile.tier?.name || "Member");
+    setText("account-username", profile.full_name ? `${profile.full_name} (@${profile.username})` : `@${profile.username}`);
+    setText("member-points", String(profile.points || 0));
+    setText("member-spent", formatPrice.format(profile.total_spent || 0));
+    if (profile.tier?.next_tier) {
+        setText("member-next-tier", `Còn ${formatPrice.format(profile.tier.remaining)} lên ${profile.tier.next_tier}`);
+    } else {
+        setText("member-next-tier", "Hạng cao nhất X-Star");
+    }
+    $("member-progress-bar").style.width = `${profile.tier?.progress ?? 0}%`;
+
+    $("profile-fullname").value = profile.full_name || "";
+    $("profile-email").value = profile.email || "";
+    $("profile-phone").value = profile.phone || "";
+    $("profile-birthdate").value = profile.birth_date || "";
+
+    const txs = profile.point_history || [];
+    $("point-history-empty").hidden = txs.length > 0;
+    $("point-history-list").replaceChildren(...txs.map((tx) => {
+        const li = element("li", null, "point-tx-row");
+        const left = element("div");
+        left.append(element("p", tx.description), element("small", formatShortDate.format(new Date(tx.created_at)), "muted"));
+        const delta = element("span", `${tx.points_delta > 0 ? "+" : ""}${tx.points_delta} Star`, `point-tx-delta ${tx.points_delta >= 0 ? "pos" : "neg"}`);
+        li.append(left, delta);
+        return li;
+    }));
+}
+
 async function loadAccount() {
     const showingAccount = !$("account").hidden;
     if (showingAccount) {
@@ -916,11 +1831,15 @@ async function loadAccount() {
     }
     try {
         const { account } = await api("/api/auth/session");
-        setText("account-link", account ? "Tài khoản" : "Đăng nhập");
+        currentAccount = account;
+        setText("account-link", account ? `${account.username} · ${account.points || 0}★` : "Đăng nhập");
         if (showingAccount) {
-            $("sign-in").hidden = Boolean(account);
+            $("account-guest-grid").hidden = Boolean(account);
             $("account-profile").hidden = !account;
-            if (account) setText("account-username", account.username);
+            if (account) {
+                const fullProfile = await api("/api/account/profile");
+                renderMemberProfile(fullProfile);
+            }
             report("account-status");
         }
     } catch (error) {
@@ -935,7 +1854,7 @@ function accountChanged() {
     try {
         sessionStorage.removeItem("checkout");
     } catch {
-        // Signing in still works in browsers that block web storage.
+        // Ignore storage access errors.
     }
 }
 
@@ -957,11 +1876,60 @@ $("sign-in").addEventListener("submit", async (event) => {
         });
         accountChanged();
         accountUpdates?.postMessage("changed");
-        location.replace("/?view=tickets");
+        location.replace("/?view=account");
     } catch (error) {
         const message = error.status === 422 ? "Hãy kiểm tra định dạng tên đăng nhập và độ dài mật khẩu." : error.message;
         report("auth-status", message, "ERROR");
         button.disabled = false;
+    }
+});
+
+$("profile-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const btn = $("profile-save");
+    btn.disabled = true;
+    report("profile-status", "Đang lưu thông tin…");
+    try {
+        await api("/api/account/profile", {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                full_name: $("profile-fullname").value,
+                email: $("profile-email").value,
+                phone: $("profile-phone").value,
+                birth_date: $("profile-birthdate").value || null,
+            }),
+        });
+        await loadAccount();
+        report("profile-status", "Đã cập nhật thông tin thành viên.");
+    } catch (error) {
+        report("profile-status", error.message, "ERROR");
+    } finally {
+        btn.disabled = false;
+    }
+});
+
+$("password-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const btn = $("password-save");
+    btn.disabled = true;
+    report("password-status", "Đang cập nhật mật khẩu…");
+    try {
+        await api("/api/account/password", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                current_password: $("current-password").value,
+                new_password: $("new-password").value,
+            }),
+        });
+        $("current-password").value = "";
+        $("new-password").value = "";
+        report("password-status", "Đã đổi mật khẩu thành công.");
+    } catch (error) {
+        report("password-status", error.message, "ERROR");
+    } finally {
+        btn.disabled = false;
     }
 });
 
@@ -982,6 +1950,7 @@ $("sign-out").addEventListener("click", async () => {
 
 $("reload-account").addEventListener("click", loadAccount);
 
+/* ---------------- ROUTER ---------------- */
 window.addEventListener("pageshow", (event) => {
     if (event.persisted && (bookingId || page.has("view"))) location.reload();
 });
@@ -989,17 +1958,26 @@ window.addEventListener("pageshow", (event) => {
 if (bookingId) {
     show("order");
     void refreshOrder();
-} else if (page.get("view") === "tickets") {
+} else if (currentView === "movie" && page.get("id")) {
+    void loadMovieDetail(page.get("id"));
+} else if (currentView === "cinemas") {
+    void loadCinemasView();
+} else if (currentView === "promotions") {
+    void loadPromotionsView();
+} else if (currentView === "blog") {
+    void loadBlogView();
+} else if (currentView === "tickets") {
     show("my-tickets");
     void loadSavedOrders();
     const ticket = page.get("ticket");
     const code = page.get("code");
     if (ticket) void lookupCode(ticket, true);
     else if (code) void lookupCode(code);
-} else if (page.get("view") === "account") {
+} else if (currentView === "account") {
     show("account");
     configureSignIn();
 } else {
+    show("catalog");
     void loadCatalog();
 }
 void loadAccount();

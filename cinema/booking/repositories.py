@@ -80,15 +80,20 @@ class BookingRepository:
         connection.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (str(key),))
 
     def insert(self, connection, booking):
+        row = {**booking, "concessions": Jsonb(booking.get("concessions", []))}
         connection.execute(
             """
             INSERT INTO cinema_booking.bookings
                 (id, request_key, request_hash, screening_id, movie_title, starts_at, auditorium,
-                 seats, customer_name, amount, status, expires_at, account_id)
+                 seats, customer_name, amount, status, expires_at, account_id,
+                 cinema_name, screening_format, concessions, concessions_amount,
+                 discount_amount, promo_code, points_redeemed)
             VALUES (%(id)s, %(request_key)s, %(request_hash)s, %(screening_id)s, %(movie_title)s, %(starts_at)s,
-                    %(auditorium)s, %(seats)s, %(customer_name)s, %(amount)s, 'HELD', %(expires_at)s, %(account_id)s)
+                    %(auditorium)s, %(seats)s, %(customer_name)s, %(amount)s, 'HELD', %(expires_at)s, %(account_id)s,
+                    %(cinema_name)s, %(screening_format)s, %(concessions)s, %(concessions_amount)s,
+                    %(discount_amount)s, %(promo_code)s, %(points_redeemed)s)
         """,
-            booking,
+            row,
         )
 
     def lock(self, connection, booking_id):
@@ -111,6 +116,12 @@ class BookingRepository:
             "UPDATE cinema_booking.bookings SET status = 'EXPIRED' WHERE id = %s", (booking_id,)
         )
 
+    def cancel(self, connection, booking_id):
+        connection.execute(
+            "UPDATE cinema_booking.bookings SET status = 'CANCELLED' WHERE id = %s AND status = 'HELD'",
+            (booking_id,),
+        )
+
     def confirm(self, connection, booking_id, payment_id):
         connection.execute(
             """
@@ -123,6 +134,8 @@ class BookingRepository:
         return connection.execute(
             """
             SELECT id, screening_id, movie_title, starts_at, auditorium, seats, customer_name, amount, expires_at,
+                   cinema_name, screening_format, concessions, concessions_amount,
+                   discount_amount, promo_code, points_redeemed,
                    statement_timestamp() AS server_now,
                    CASE WHEN status = 'HELD' AND expires_at <= statement_timestamp()
                         THEN 'EXPIRED' ELSE status END AS status,
@@ -138,6 +151,7 @@ class BookingRepository:
         return connection.execute(
             """
             SELECT booking.id, booking.movie_title, booking.starts_at, booking.auditorium, booking.seats,
+                   booking.cinema_name, booking.screening_format, booking.amount,
                    CASE WHEN booking.status = 'HELD' AND booking.expires_at <= statement_timestamp()
                         THEN 'EXPIRED' ELSE booking.status END AS status
             FROM cinema_booking.saved_bookings AS saved
@@ -188,7 +202,7 @@ class TicketRepository:
     def find(self, connection, code):
         return connection.execute(
             """
-            SELECT t.code, t.seat, b.movie_title, b.auditorium, b.starts_at
+            SELECT t.code, t.seat, b.movie_title, b.auditorium, b.cinema_name, b.screening_format, b.starts_at
             FROM cinema_booking.tickets t JOIN cinema_booking.bookings b ON b.id = t.booking_id
             WHERE t.code = %s
         """,
