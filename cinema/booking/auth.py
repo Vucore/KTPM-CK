@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import date, timedelta
 from hashlib import sha256
 from secrets import token_hex
 from typing import Annotated
@@ -11,6 +11,7 @@ from fastapi import HTTPException
 from pydantic import BaseModel, Field, SecretStr, StringConstraints, field_validator
 
 from cinema.booking.auth_repository import AccountRepository
+from cinema.booking.domain import member_tier
 from cinema.common import Database
 
 SESSION_LIFETIME = timedelta(days=30)
@@ -29,6 +30,26 @@ class Credentials(BaseModel):
 
 class SignUp(Credentials):
     password: SecretStr = Field(min_length=15, max_length=128)
+
+
+class ProfileUpdate(BaseModel):
+    full_name: str | None = Field(default=None, max_length=80)
+    email: str | None = Field(default=None, max_length=120)
+    phone: str | None = Field(default=None, max_length=20)
+    birth_date: date | None = None
+
+    @field_validator("full_name", "email", "phone", mode="before")
+    @classmethod
+    def clean_optional(cls, value):
+        if isinstance(value, str):
+            trimmed = value.strip()
+            return trimmed or None
+        return value
+
+
+class PasswordChange(BaseModel):
+    current_password: SecretStr = Field(min_length=1, max_length=128)
+    new_password: SecretStr = Field(min_length=15, max_length=128)
 
 
 @dataclass(frozen=True)
@@ -90,7 +111,48 @@ class AuthService:
         if not token:
             return None
         with self.db.transaction() as connection:
-            return self.accounts.session_account(connection, token_digest(token))
+            account = self.accounts.session_account(connection, token_digest(token))
+            if not account:
+                return None
+            account["tier"] = member_tier(account["total_spent"])
+            return account
+
+    def profile(self, account_id: UUID):
+        with self.db.transaction() as connection:
+            account = self.accounts.find_by_id(connection, account_id)
+            if not account:
+                raise HTTPException(404, "Không tìm thấy tài khoản")
+            account.pop("password_hash", None)
+            account["tier"] = member_tier(account["total_spent"])
+            account["point_history"] = self.accounts.point_history(connection, account_id)
+            return account
+
+    def update_profile(self, account_id: UUID, data: ProfileUpdate):
+        with self.db.transaction() as connection:
+            updated = self.accounts.update_profile(
+                connection, account_id, data.full_name, data.email, data.phone, data.birth_date
+            )
+            if not updated:
+                raise HTTPException(404, "Không tìm thấy tài khoản")
+            updated["tier"] = member_tier(updated["total_spent"])
+            return updated
+
+    def change_password(self, account_id: UUID, data: PasswordChange):
+        with self.db.transaction() as connection:
+            account = self.accounts.find_by_id(connection, account_id)
+        if not account:
+            raise HTTPException(404, "Không tìm thấy tài khoản")
+        try:
+            verified = self.passwords.verify(
+                account["password_hash"], data.current_password.get_secret_value()
+            )
+        except (VerificationError, InvalidHashError):
+            verified = False
+        if not verified:
+            raise HTTPException(401, "Mật khẩu hiện tại không đúng")
+        new_hash = self.passwords.hash(data.new_password.get_secret_value())
+        with self.db.transaction() as connection:
+            self.accounts.update_password_hash(connection, account_id, account["password_hash"], new_hash)
 
     def logout(self, token: str | None):
         if token:

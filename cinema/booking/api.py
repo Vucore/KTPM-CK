@@ -23,6 +23,8 @@ from cinema.booking.auth import (
     AuthService,
     BookingViewer,
     Credentials,
+    PasswordChange,
+    ProfileUpdate,
     SignUp,
     token_digest,
 )
@@ -85,7 +87,8 @@ def create_app(settings: Settings | None = None, downstream: httpx.BaseTransport
     transport = ServiceClient(http)
     catalog = CatalogClient(transport, settings.catalog_url)
     payment = PaymentClient(transport, settings.payment_url, settings.internal_key)
-    auth = AuthService(db, AccountRepository(), PasswordHasher(time_cost=2, memory_cost=19456, parallelism=1))
+    accounts_repo = AccountRepository()
+    auth = AuthService(db, accounts_repo, PasswordHasher(time_cost=2, memory_cost=19456, parallelism=1))
     bookings, seats, tickets = BookingRepository(), ScreeningSeatRepository(), TicketRepository()
     hold = HoldSeatsUseCase(
         db,
@@ -94,12 +97,13 @@ def create_app(settings: Settings | None = None, downstream: httpx.BaseTransport
         Pricing(WeekdayPricing(), WeekendPricing()),
         catalog,
         settings.hold_seconds,
+        accounts_repo,
     )
     checkout = CheckoutFacade(hold, payment)
     seat_updates = SeatMapObserver()
     outbox = Outbox(db, "cinema_booking")
     service = BookingService(
-        db, bookings, seats, tickets, outbox, BookingObservers([seat_updates, log_confirmation])
+        db, bookings, seats, tickets, outbox, BookingObservers([seat_updates, log_confirmation]), accounts_repo
     )
     worker = RabbitWorker(settings.rabbitmq_url, "payment.succeeded", outbox, service.payment_succeeded)
 
@@ -137,7 +141,15 @@ def create_app(settings: Settings | None = None, downstream: httpx.BaseTransport
             return BookingViewer(account["id"], f"account:{account['id']}")
         return BookingViewer(history_key=f"browser:{token_digest(browser_token(request, response))}")
 
+    def signed_in_account(request: Request, response: Response):
+        response.headers["Cache-Control"] = "no-store"
+        account = auth.current_account(cookie_token(request, ACCOUNT_COOKIE))
+        if not account:
+            raise HTTPException(401, "Vui lòng đăng nhập để thực hiện thao tác này.")
+        return account
+
     Viewer = Annotated[BookingViewer, Depends(viewer)]
+    Account = Annotated[dict, Depends(signed_in_account)]
     same_origin = [Depends(require_same_origin)]
 
     def sign_in(authenticate, credentials, request, response):
@@ -168,6 +180,18 @@ def create_app(settings: Settings | None = None, downstream: httpx.BaseTransport
         response.headers["Cache-Control"] = "no-store"
         return {"account": auth.current_account(cookie_token(request, ACCOUNT_COOKIE))}
 
+    @app.get("/api/account/profile")
+    def account_profile(account: Account):
+        return auth.profile(account["id"])
+
+    @app.patch("/api/account/profile", dependencies=same_origin)
+    def update_profile(payload: ProfileUpdate, account: Account):
+        return auth.update_profile(account["id"], payload)
+
+    @app.post("/api/account/password", status_code=204, dependencies=same_origin)
+    def change_password(payload: PasswordChange, account: Account):
+        auth.change_password(account["id"], payload)
+
     @app.post("/api/auth/logout", status_code=204, dependencies=same_origin)
     def logout(request: Request, response: Response):
         auth.logout(cookie_token(request, ACCOUNT_COOKIE))
@@ -177,6 +201,14 @@ def create_app(settings: Settings | None = None, downstream: httpx.BaseTransport
     @app.get("/api/screenings")
     def screenings():
         return catalog.upcoming()
+
+    @app.get("/api/catalog/home")
+    def catalog_home():
+        return catalog.home()
+
+    @app.get("/api/movies/{movie_id}")
+    def movie_detail(movie_id: str):
+        return catalog.movie(movie_id)
 
     @app.get("/api/screenings/{screening_id}/seats")
     def seat_map(screening_id: str):
@@ -216,6 +248,10 @@ def create_app(settings: Settings | None = None, downstream: httpx.BaseTransport
     @app.get("/api/bookings/{booking_id}")
     def booking_detail(booking_id: UUID, current: Viewer):
         return service.detail(booking_id, current)
+
+    @app.post("/api/bookings/{booking_id}/cancel", dependencies=same_origin)
+    def cancel_booking(booking_id: UUID, current: Viewer):
+        return service.cancel(booking_id, current, payment)
 
     @app.get("/api/bookings/{booking_id}/payment")
     def payment_status(booking_id: UUID, current: Viewer):

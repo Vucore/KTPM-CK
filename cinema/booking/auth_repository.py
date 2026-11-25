@@ -1,3 +1,6 @@
+from uuid import uuid4
+
+
 class AccountRepository:
     def register(self, connection, account_id, username, password_hash):
         return connection.execute(
@@ -14,6 +17,99 @@ class AccountRepository:
             "SELECT id, username, password_hash FROM cinema_booking.accounts WHERE username = %s",
             (username,),
         ).fetchone()
+
+    def find_by_id(self, connection, account_id):
+        return connection.execute(
+            """
+            SELECT id, username, password_hash, full_name, email, phone, birth_date, points, total_spent, created_at
+            FROM cinema_booking.accounts WHERE id = %s
+            """,
+            (account_id,),
+        ).fetchone()
+
+    def lock_account(self, connection, account_id):
+        return connection.execute(
+            """
+            SELECT id, username, points, total_spent
+            FROM cinema_booking.accounts WHERE id = %s FOR UPDATE
+            """,
+            (account_id,),
+        ).fetchone()
+
+    def update_profile(self, connection, account_id, full_name, email, phone, birth_date):
+        return connection.execute(
+            """
+            UPDATE cinema_booking.accounts
+            SET full_name = %s, email = %s, phone = %s, birth_date = %s
+            WHERE id = %s
+            RETURNING id, username, full_name, email, phone, birth_date, points, total_spent, created_at
+            """,
+            (full_name, email, phone, birth_date, account_id),
+        ).fetchone()
+
+    def record_point_transaction(self, connection, account_id, booking_id, kind, points_delta, description):
+        inserted = connection.execute(
+            """
+            INSERT INTO cinema_booking.point_transactions
+                (id, account_id, booking_id, kind, points_delta, description)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            ON CONFLICT (booking_id, kind) DO NOTHING
+            RETURNING points_delta
+            """,
+            (uuid4(), account_id, booking_id, kind, points_delta, description),
+        ).fetchone()
+        if not inserted:
+            return False
+        spent_delta = 0
+        if kind == "EARN":
+            spent_delta = max(0, points_delta * 10000)
+        connection.execute(
+            """
+            UPDATE cinema_booking.accounts
+            SET points = GREATEST(0, points + %s),
+                total_spent = total_spent + %s
+            WHERE id = %s
+            """,
+            (points_delta, spent_delta, account_id),
+        )
+        return True
+
+    def add_spent_and_earn(self, connection, account_id, booking_id, amount, description):
+        earned = max(1, amount // 10000)
+        inserted = connection.execute(
+            """
+            INSERT INTO cinema_booking.point_transactions
+                (id, account_id, booking_id, kind, points_delta, description)
+            VALUES (%s, %s, %s, 'EARN', %s, %s)
+            ON CONFLICT (booking_id, kind) DO NOTHING
+            RETURNING id
+            """,
+            (uuid4(), account_id, booking_id, earned, description),
+        ).fetchone()
+        if inserted:
+            connection.execute(
+                """
+                UPDATE cinema_booking.accounts
+                SET points = points + %s,
+                    total_spent = total_spent + %s
+                WHERE id = %s
+                """,
+                (earned, amount, account_id),
+            )
+            return earned
+        return 0
+
+    def point_history(self, connection, account_id):
+        return connection.execute(
+            """
+            SELECT id, booking_id, kind, points_delta, description, created_at
+            FROM cinema_booking.point_transactions
+            WHERE account_id = %s
+            ORDER BY created_at DESC
+            LIMIT 25
+            """,
+            (account_id,),
+        ).fetchall()
 
     def update_password_hash(self, connection, account_id, previous, password_hash):
         connection.execute(
@@ -33,7 +129,9 @@ class AccountRepository:
     def session_account(self, connection, token_hash):
         return connection.execute(
             """
-            SELECT account.id, account.username FROM cinema_booking.account_sessions AS session
+            SELECT account.id, account.username, account.full_name, account.email,
+                   account.phone, account.birth_date, account.points, account.total_spent
+            FROM cinema_booking.account_sessions AS session
             JOIN cinema_booking.accounts AS account ON account.id = session.account_id
             WHERE session.token_hash = %s AND session.expires_at > statement_timestamp()
             """,
