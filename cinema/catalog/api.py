@@ -106,6 +106,9 @@ class CatalogRepository:
             coming_soon = connection.execute(
                 MOVIES + " WHERE COALESCE(mp.release_status, 'NOW_SHOWING') = 'COMING_SOON' ORDER BY mp.release_date, m.title"
             ).fetchall()
+            all_movies = connection.execute(
+                MOVIES + " ORDER BY COALESCE(mp.rating, 8.5) DESC, m.title"
+            ).fetchall()
             cinemas = connection.execute(
                 "SELECT * FROM cinema_catalog.cinemas ORDER BY city, name"
             ).fetchall()
@@ -121,6 +124,7 @@ class CatalogRepository:
             return {
                 "screenings": screenings,
                 "coming_soon": coming_soon,
+                "all_movies": all_movies,
                 "cinemas": cinemas,
                 "concessions": concessions,
                 "promotions": promotions,

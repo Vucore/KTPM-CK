@@ -268,7 +268,7 @@ class HoldSeatsUseCase:
                 "seats": labels,
                 "customer_name": customer,
                 **quote,
-                "hold_owner": viewer.history_key if draft else None,
+                "hold_owner": viewer.history_key,
                 "checkout_phase": "DRAFT" if draft else "LEGACY",
                 "expires_at": min(now + self.hold_duration, screening["starts_at"]),
             }
@@ -574,12 +574,27 @@ class BookingService:
         # A lost response can be retried with the same key against the same session.
         return payment_client.simulate(booking_id, key, request)
 
-    def ticket(self, code: UUID):
+    def ticket(self, code: UUID, viewer: BookingViewer | None = None):
         with self.db.transaction() as connection:
             ticket = self.tickets.find(connection, code)
             if not ticket:
                 raise HTTPException(404, "Không tìm thấy vé")
-            return ticket
+            if viewer is None:
+                raise HTTPException(404, "Không tìm thấy vé")
+            is_staff = viewer.role in {"STAFF", "ADMIN"}
+            owner_account = ticket.get("account_id")
+            hold_owner = ticket.get("hold_owner")
+            is_owner = (
+                (owner_account is not None and owner_account == viewer.account_id)
+                or (
+                    owner_account is None
+                    and viewer.history_key is not None
+                    and (not hold_owner or hold_owner == viewer.history_key)
+                )
+            )
+            if not is_staff and not is_owner:
+                raise HTTPException(404, "Không tìm thấy vé")
+            return {k: v for k, v in ticket.items() if k not in {"account_id", "hold_owner"}}
 
     def check_in_ticket(self, code: UUID, staff_account_id: UUID):
         with self.db.transaction() as connection:

@@ -29,7 +29,7 @@ class Settings:
         if not database_url:
             raise RuntimeError("Set SUPABASE_DATABASE_URL in .env")
         internal_key = os.getenv("INTERNAL_API_KEY", "")
-        if service in {"booking", "payment"} and len(internal_key) < 24:
+        if service in {"booking", "payment", "catalog"} and len(internal_key) < 24:
             raise RuntimeError("Set INTERNAL_API_KEY to a random value of at least 24 characters")
         hold_seconds = int(os.getenv("HOLD_SECONDS", "300"))
         if not 1 <= hold_seconds <= 3600:

@@ -300,7 +300,7 @@ class TicketRepository:
         return connection.execute(
             """
             SELECT t.code, t.seat, t.customer_name, t.checked_in_at,
-                   b.id AS booking_id, b.movie_title, b.auditorium, b.cinema_name,
+                   b.account_id, b.hold_owner, b.movie_title, b.auditorium, b.cinema_name,
                    b.screening_format, b.starts_at
             FROM cinema_booking.tickets t JOIN cinema_booking.bookings b ON b.id = t.booking_id
             WHERE t.code = %s

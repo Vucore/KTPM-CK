@@ -105,4 +105,5 @@ node --check cinema/web/app.js
 - [Tài khoản và lịch sử vé](specs/accounts.md)
 - [Kiến trúc](docs/architecture.md) và [sáu design pattern](docs/patterns.md)
 - [Giao diện và luồng đặt vé](docs/giao-dien.md)
+- [Kiểm thử phân quyền (Authorization Testing)](docs/kiem-thu-phan-quyen.md)
 - [Kịch bản demo](docs/demo.md) và [kế hoạch](KE_HOACH.md)

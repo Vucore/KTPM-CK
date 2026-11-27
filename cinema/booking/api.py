@@ -154,7 +154,7 @@ def create_app(settings: Settings | None = None, downstream: httpx.BaseTransport
         response.headers["Cache-Control"] = "no-store"
         account = auth.current_account(cookie_token(request, ACCOUNT_COOKIE))
         if account:
-            return BookingViewer(account["id"], f"account:{account['id']}")
+            return BookingViewer(account["id"], f"account:{account['id']}", account.get("role", "USER"))
         return BookingViewer(history_key=f"browser:{token_digest(browser_token(request, response))}")
 
     def signed_in_account(request: Request, response: Response):
@@ -308,14 +308,16 @@ def create_app(settings: Settings | None = None, downstream: httpx.BaseTransport
         return service.begin_payment(booking_id, key, request, current, payment)
 
     @app.get("/api/tickets/{code}/qr.svg")
-    def ticket_qr(code: UUID):
-        service.ticket(code)
+    def ticket_qr(code: UUID, current: Viewer):
+        service.ticket(code, current)
         qr = qrcode.make(str(code), image_factory=qrcode.image.svg.SvgPathImage)
         buffer = io.BytesIO()
         qr.save(buffer)
         return Response(buffer.getvalue(), media_type="image/svg+xml")
 
-    app.get("/api/tickets/{code}")(service.ticket)
+    @app.get("/api/tickets/{code}")
+    def ticket_detail(code: UUID, current: Viewer):
+        return service.ticket(code, current)
 
     # ---------------- ADMIN & STAFF ENDPOINTS ----------------
     @app.get("/api/admin/overview")

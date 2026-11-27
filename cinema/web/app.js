@@ -72,9 +72,10 @@ const signingUp = page.get("mode") === "register";
 const accountUpdates = "BroadcastChannel" in window ? new BroadcastChannel("chon-suat.account") : null;
 const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 
-let catalogData = { screenings: [], coming_soon: [], cinemas: [], concessions: [], promotions: [], blog_posts: [] };
+let catalogData = { screenings: [], coming_soon: [], all_movies: [], cinemas: [], concessions: [], promotions: [], blog_posts: [] };
 let movies = [];
 let comingSoonMovies = [];
+let allCatalogMovies = [];
 let activeMovieTab = "now";
 let featured = [];
 let featuredIndex = 0;
@@ -85,7 +86,8 @@ let currentAccount = null;
 let activeMovieDetail = null;
 let activeCinemaId = null;
 let activeCinemaCity = "Tất cả";
-let activeBlogCat = "all";
+const VALID_BLOG_TABS = new Set(["genres", "actors", "directors", "reviews", "articles"]);
+let activeBlogTab = VALID_BLOG_TABS.has(page.get("tab")) ? page.get("tab") : "genres";
 
 let screening = null;
 let seatList = [];
@@ -622,7 +624,9 @@ function renderHomeSpotlight() {
             element("h4", post.title),
             element("p", `${post.author} · ${post.published_label} · ${post.views.toLocaleString("vi-VN")} lượt xem`),
         );
-        card.addEventListener("click", () => openBlogModal(post, card));
+        card.addEventListener("click", () => {
+            void openArticleDetail(post.id);
+        });
         return card;
     }));
     $("home-promo-list").replaceChildren(...promos.map((promo) => {
@@ -648,6 +652,11 @@ async function ensureCatalogData() {
     }
     movies = groupMovies(catalogData.screenings || []);
     comingSoonMovies = (catalogData.coming_soon || []).map((m) => ({
+        ...m,
+        key: m.id,
+        art: filmArt.get(m.id ?? m.title),
+    }));
+    allCatalogMovies = (catalogData.all_movies?.length ? catalogData.all_movies : [...movies, ...comingSoonMovies]).map((m) => ({
         ...m,
         key: m.id,
         art: filmArt.get(m.id ?? m.title),
@@ -759,12 +768,39 @@ $("dat-ve").addEventListener("submit", (event) => {
 $("reload-catalog").addEventListener("click", loadCatalog);
 
 /* ---------------- MOVIE DETAIL ---------------- */
+function renderSidebarMovies(containerId, excludeId = "") {
+    const list = movies.filter((m) => m.id !== excludeId).slice(0, 4);
+    $(containerId).replaceChildren(...list.map((film) => {
+        const link = element("a", null, "sidebar-movie-card");
+        link.href = `/?view=movie&id=${encodeURIComponent(film.id)}`;
+        const thumb = element("div", null, "sidebar-movie-thumb");
+        const src = posterUrl(film.id ?? film.title, film.poster_url);
+        if (src) {
+            const img = element("img");
+            img.alt = film.title;
+            img.loading = "lazy";
+            img.src = src;
+            thumb.append(img);
+        }
+        const badges = element("div", null, "poster-badges");
+        badges.append(element("span", `★ ${Number(film.rating || 8.5).toFixed(1)}`, "rating-pill"));
+        const age = element("span", film.age_rating || "P", "age-badge");
+        age.dataset.age = film.age_rating || "P";
+        badges.append(age);
+        thumb.append(badges);
+        link.append(thumb, element("h4", film.title));
+        return link;
+    }));
+}
+
 function renderDetailShowtimes() {
     if (!activeMovieDetail) return;
     const city = $("detail-city").value;
+    const cinemaId = $("detail-cinema-filter").value;
     const date = $("detail-date").value;
     let slots = activeMovieDetail.screenings || [];
     if (city) slots = slots.filter((s) => s.city === city);
+    if (cinemaId) slots = slots.filter((s) => (s.cinema_id || s.auditorium) === cinemaId);
     if (date) slots = slots.filter((s) => dateLabel(s.starts_at) === date);
 
     const byCinema = new Map();
@@ -780,15 +816,20 @@ function renderDetailShowtimes() {
     for (const [cinemaName, info] of byCinema) {
         const card = element("article", null, "cinema-schedule-card");
         const head = element("div", null, "cinema-schedule-head");
-        head.append(element("h3", cinemaName), element("span", info.city, "muted"));
+        const cinemaMeta = (catalogData.cinemas || []).find((c) => c.name === cinemaName);
+        head.append(
+            element("h3", cinemaName),
+            element("span", cinemaMeta?.address || info.city, "muted"),
+        );
         card.append(head);
         for (const [fmt, fmtSlots] of info.formats) {
             const row = element("div", null, "format-row");
             row.append(element("span", fmt, "format-row-label"));
             const list = element("div", null, "showtime-list");
             for (const slot of fmtSlots) {
-                const btn = element("button", `${shortTime(slot.starts_at)} · ${formatShortDate.format(new Date(slot.starts_at))}`, "showtime");
+                const btn = element("button", shortTime(slot.starts_at), "showtime");
                 btn.type = "button";
+                btn.title = `${shortTime(slot.starts_at)} · ${formatShortDate.format(new Date(slot.starts_at))} · ${slot.auditorium}`;
                 btn.addEventListener("click", () => openScreening(slot, btn));
                 list.append(btn);
             }
@@ -801,6 +842,50 @@ function renderDetailShowtimes() {
     $("detail-showtimes-empty").hidden = cards.length > 0;
 }
 
+function renderDetailDateTabs(screenings) {
+    const dates = new Map();
+    for (const s of screenings) {
+        const key = dateLabel(s.starts_at);
+        if (!dates.has(key)) {
+            const d = new Date(s.starts_at);
+            const weekday = new Intl.DateTimeFormat("vi-VN", { ...vietnamTime, weekday: "long" }).format(d);
+            const shortDay = new Intl.DateTimeFormat("vi-VN", { ...vietnamTime, day: "2-digit", month: "2-digit" }).format(d);
+            dates.set(key, {
+                weekday: weekday.charAt(0).toLocaleUpperCase("vi-VN") + weekday.slice(1),
+                shortDay,
+            });
+        }
+    }
+    $("detail-date").replaceChildren(
+        option("", "Tất cả ngày"),
+        ...[...dates].map(([key, info]) => option(key, `${info.weekday} (${info.shortDay})`)),
+    );
+
+    const pills = [];
+    const allPill = element("button", null, "detail-date-pill");
+    allPill.type = "button";
+    allPill.dataset.dateKey = "";
+    allPill.append(element("strong", "Tất cả"), element("span", `${dates.size} ngày`));
+    pills.push(allPill);
+
+    for (const [key, info] of dates) {
+        const pill = element("button", null, "detail-date-pill");
+        pill.type = "button";
+        pill.dataset.dateKey = key;
+        pill.append(element("strong", info.weekday), element("span", info.shortDay));
+        pills.push(pill);
+    }
+    for (const pill of pills) {
+        pill.setAttribute("aria-selected", String(pill.dataset.dateKey === $("detail-date").value));
+        pill.onclick = () => {
+            $("detail-date").value = pill.dataset.dateKey;
+            pills.forEach((p) => p.setAttribute("aria-selected", String(p === pill)));
+            renderDetailShowtimes();
+        };
+    }
+    $("detail-date-tabs").replaceChildren(...pills);
+}
+
 async function loadMovieDetail(movieId) {
     show("movie-detail");
     $("detail-content").hidden = true;
@@ -809,6 +894,12 @@ async function loadMovieDetail(movieId) {
         await ensureCatalogData();
         const movie = await api(`/api/movies/${encodeURIComponent(movieId)}`);
         activeMovieDetail = movie;
+
+        const art = filmArt.get(movie.id ?? movie.title);
+        const backdropSrc = art?.banner ? `/assets/films/${art.banner}` : posterUrl(movie.id ?? movie.title, movie.poster_url);
+        $("detail-backdrop-visual").style.backgroundImage = backdropSrc ? `url("${backdropSrc}")` : "";
+        $("detail-play-btn").onclick = () => openTrailerModal(movie, $("detail-play-btn"));
+
         const poster = $("detail-poster");
         poster.replaceChildren();
         const src = posterUrl(movie.id ?? movie.title, movie.poster_url);
@@ -822,24 +913,58 @@ async function loadMovieDetail(movieId) {
         const badges = [element("span", movie.age_rating || "P", "age-badge")];
         badges[0].dataset.age = movie.age_rating || "P";
         if (movie.is_imax) badges.push(element("span", "IMAX", "format-badge"));
-        badges.push(element("span", `★ ${Number(movie.rating || 8.5).toFixed(1)}`, "rating-pill"));
         $("detail-badges").replaceChildren(...badges);
 
         setText("detail-title", movie.title);
-        setText("detail-meta", `${movie.genre} · ${movie.duration_minutes} phút`);
+        const releaseLabel = movie.release_date ? formatShortDate.format(new Date(movie.release_date)) : "Đang chiếu";
+        setText("detail-meta", `⏱ ${movie.duration_minutes} phút  ·  📅 ${releaseLabel}  ·  ★ ${Number(movie.rating || 8.5).toFixed(1)}/10`);
         setText("detail-synopsis", movie.synopsis || "Chưa có mô tả chi tiết.");
 
-        const facts = [
-            ["Quốc gia", movie.country || "Quốc tế"],
-            ["Khởi chiếu", movie.release_date ? formatShortDate.format(new Date(movie.release_date)) : "Đang chiếu"],
-            ["Đạo diễn", movie.director || "Đang cập nhật"],
-            ["Diễn viên", movie.cast_list || "Đang cập nhật"],
-        ];
-        $("detail-facts").replaceChildren(...facts.map(([k, v]) => {
+        const makeChipList = (raw, tabName, isPersonRole = false) => {
+            const wrap = element("dd");
+            const items = (raw || "").split(",").map((v) => v.trim()).filter(Boolean);
+            if (!items.length) {
+                wrap.textContent = "Đang cập nhật";
+                return wrap;
+            }
+            for (const name of items) {
+                const chip = element("a", name, "meta-chip");
+                chip.href = isPersonRole
+                    ? `/?view=person&role=${encodeURIComponent(tabName)}&name=${encodeURIComponent(name)}`
+                    : `/?view=blog&tab=${encodeURIComponent(tabName)}&genre=${encodeURIComponent(name)}`;
+                wrap.append(chip);
+            }
+            return wrap;
+        };
+
+        const factsList = [];
+        const addFact = (label, ddNode) => {
             const row = element("div");
-            row.append(element("dt", `${k}:`), element("dd", v));
-            return row;
-        }));
+            row.append(element("dt", `${label}:`), ddNode);
+            factsList.push(row);
+        };
+        addFact("Quốc gia", element("dd", movie.country || "Quốc tế"));
+        addFact("Thể loại", makeChipList((movie.genre || "").replaceAll("·", ","), "genres", false));
+        addFact("Đạo diễn", makeChipList(movie.director, "directors", true));
+        addFact("Diễn viên", makeChipList(movie.cast_list, "actors", true));
+        $("detail-facts").replaceChildren(...factsList);
+
+        const relatedReview = (catalogData.blog_posts || []).find((p) => p.movie_id === movie.id);
+        const reviewBox = $("detail-review-box");
+        if (relatedReview) {
+            reviewBox.replaceChildren();
+            const left = element("div");
+            left.append(
+                element("span", relatedReview.category === "review" ? "Bài viết liên quan · Bình luận phim" : "Góc Điện Ảnh", "promo-tag"),
+                element("h3", relatedReview.title),
+            );
+            const btn = element("a", "Đọc bài viết", "button secondary");
+            btn.href = `/?view=article&id=${encodeURIComponent(relatedReview.id)}`;
+            reviewBox.append(left, btn);
+            reviewBox.hidden = false;
+        } else {
+            reviewBox.hidden = true;
+        }
 
         const trailerBtn = $("detail-trailer-btn");
         trailerBtn.hidden = false;
@@ -847,12 +972,12 @@ async function loadMovieDetail(movieId) {
 
         const cities = [...new Set((movie.screenings || []).map((s) => s.city).filter(Boolean))];
         $("detail-city").replaceChildren(option("", "Toàn quốc"), ...cities.map((c) => option(c, c)));
-        const dates = new Map((movie.screenings || []).map((s) => [
-            dateLabel(s.starts_at), formatShortDate.format(new Date(s.starts_at)),
-        ]));
-        $("detail-date").replaceChildren(option("", "Tất cả ngày"), ...[...dates].map(([k, v]) => option(k, v)));
+        const cinemaOpts = new Map((movie.screenings || []).map((s) => [s.cinema_id || s.auditorium, s.cinema_name || s.auditorium]));
+        $("detail-cinema-filter").replaceChildren(option("", "Tất cả rạp"), ...[...cinemaOpts].map(([k, v]) => option(k, v)));
 
+        renderDetailDateTabs(movie.screenings || []);
         renderDetailShowtimes();
+        renderSidebarMovies("detail-now-list", movie.id);
         report("detail-status");
         $("detail-content").hidden = false;
     } catch (error) {
@@ -861,6 +986,7 @@ async function loadMovieDetail(movieId) {
 }
 
 $("detail-city").addEventListener("change", renderDetailShowtimes);
+$("detail-cinema-filter").addEventListener("change", renderDetailShowtimes);
 $("detail-date").addEventListener("change", renderDetailShowtimes);
 $("detail-back").addEventListener("click", () => { location.href = "/"; });
 
@@ -1018,60 +1144,630 @@ async function loadPromotionsView() {
     }));
 }
 
-function openBlogModal(post, origin) {
-    const nodes = [
-        element("p", `${post.author} · ${post.published_label} · ${post.views.toLocaleString("vi-VN")} lượt xem`, "muted"),
-        element("p", post.summary),
-        element("p", post.content),
-    ];
-    if (post.movie_id) {
-        const link = element("a", "Xem lịch chiếu & Đặt vé phim này", "button primary");
-        link.href = `/?view=movie&id=${encodeURIComponent(post.movie_id)}`;
-        nodes.push(link);
+const CORNER_TITLES = {
+    genres: "PHIM ĐIỆN ẢNH",
+    actors: "DIỄN VIÊN",
+    directors: "ĐẠO DIỄN",
+    reviews: "BÌNH LUẬN PHIM",
+    articles: "BLOG ĐIỆN ẢNH",
+};
+
+const ARTIST_PROFILES = {
+    "Liên Bỉnh Phát": {
+        dob: "25/11/1990",
+        height: "1m78",
+        awards: "Tokyo Gemstone Award (LHP Quốc tế Tokyo), Cánh Diều Vàng",
+        style: "Tâm lý · Chính kịch · Hành động",
+        paragraphs: [
+            "Liên Bỉnh Phát là một trong những nam diễn viên thực lực nổi bật của điện ảnh Việt Nam đương đại. Bắt đầu được công chúng chú ý từ vai Dũng 'Thiên Lôi' trong Song Lang (2018), anh nhanh chóng khẳng định thực lực qua lối diễn xuất tiết chế, ánh mắt giàu nội tâm và khả năng hóa thân đa dạng.",
+            "Trong dự án Sài Gòn Sau Mưa tại hệ thống DUT Cinema, Liên Bỉnh Phát tiếp tục chinh phục khán giả nhờ cách xử lý cảm xúc tinh tế, truyền tải trọn vẹn sự cô đơn và khát khao kết nối giữa lòng đô thị về đêm.",
+        ],
+    },
+    "Kaity Nguyễn": {
+        dob: "09/04/1999",
+        height: "1m55",
+        awards: "Bông Sen Vàng Nữ diễn viên chính xuất sắc, Ngôi Sao Xanh",
+        style: "Tâm lý · Tình cảm · Hài",
+        paragraphs: [
+            "Kaity Nguyễn bứt phá mạnh mẽ ngay từ vai diễn đầu tay trong Em Chưa 18 và liên tiếp góp mặt trong nhiều tác phẩm đạt doanh thu trăm tỷ như Tiệc Trăng Máu, Gái Già Lắm Chiêu V, Người Vợ Cuối Cùng.",
+            "Sở hữu gương mặt điện ảnh cùng đài từ rõ nét, cô luôn mang lại năng lượng tươi mới, tự nhiên trong từng khung hình và được đánh giá là gương mặt bảo chứng phòng vé của màn ảnh Việt.",
+        ],
+    },
+    "Thuận Nguyễn": {
+        dob: "26/01/1992",
+        height: "1m88",
+        awards: "Á quân Ngôi Sao Tương Lai, Đề cử Mai Vàng",
+        style: "Khoa học viễn tưởng · Hành động · Tâm lý",
+        paragraphs: [
+            "Xuất thân từ sân khấu kịch, Thuận Nguyễn nổi tiếng nhờ tinh thần lăn xả hết mình cho vai diễn, sẵn sàng thay đổi ngoại hình và thể lực để phù hợp với nhân vật.",
+            "Tham gia Quỹ Đạo Cuối với định dạng IMAX 2D, anh mang đến hình ảnh người kỹ sư vũ trụ kiên cường, giàu chiều sâu tâm lý trong tình huống sinh tồn khắc nghiệt.",
+        ],
+    },
+    "Phương Anh Đào": {
+        dob: "30/04/1992",
+        height: "1m68",
+        awards: "Nữ diễn viên xuất sắc LHP Quốc tế Hà Nội, Cánh Diều Vàng",
+        style: "Tâm lý · Khoa học viễn tưởng · Chính kịch",
+        paragraphs: [
+            "Phương Anh Đào được giới chuyên môn đánh giá cao từ Nhắm Mắt Thấy Mùa Hè, Chàng Vợ Của Em đến Tro Tàn Rực Rỡ và Mai. Cô sở hữu khả năng chuyển biến tâm lý mượt mà, tạo đồng cảm sâu sắc với người xem.",
+            "Trong Quỹ Đạo Cuối, màn tung hứng ăn ý giữa Phương Anh Đào và bạn diễn góp phần tạo nên nhịp căng thẳng nhưng đầy tính nhân văn cho tác phẩm.",
+        ],
+    },
+    "Nguyễn Quang Dũng": {
+        dob: "09/07/1978",
+        height: "Phong cách kể chuyện giàu cảm xúc & giải trí",
+        awards: "Cánh Diều Vàng, Giải thưởng Ngôi Sao Xanh Đạo diễn xuất sắc",
+        style: "Tâm lý · Tình cảm · Âm nhạc",
+        paragraphs: [
+            "Đạo diễn Nguyễn Quang Dũng là một trong những nhà làm phim hàng đầu của điện ảnh Việt Nam với hàng loạt tác phẩm ăn khách như Tháng Năm Rực Rỡ, Tiệc Trăng Máu, Đất Rừng Phương Nam.",
+            "Thế mạnh của anh nằm ở khả năng điều tiết nhịp phim mạch lạc, khai thác diễn xuất tập thể xuất sắc và lồng ghép chất liệu văn hóa – ký ức đô thị rất gần gũi với khán giả Việt.",
+        ],
+    },
+    "Trần Anh Hùng": {
+        dob: "23/12/1962",
+        height: "Ngôn ngữ thị giác giàu chất thơ & ánh sáng",
+        awards: "Caméra d'Or & Đạo diễn xuất sắc LHP Cannes, Sư Tử Vàng Venice",
+        style: "Chính kịch · Khoa học viễn tưởng · Nghệ thuật",
+        paragraphs: [
+            "Trần Anh Hùng là đạo diễn gốc Việt hiếm hoi liên tục gặt hái giải thưởng cao quý tại các liên hoan phim danh giá nhất thế giới như Cannes và Venice (Mùi Đu Đủ Xanh, Xích Lô, Muôn Vị Nhân Gian).",
+            "Sự tỉ mỉ trong bố cục khung hình, chuyển động máy quay uyển chuyển và thiết kế âm thanh đa lớp biến mỗi bộ phim của ông thành một trải nghiệm thưởng thức điện ảnh trọn vẹn.",
+        ],
+    },
+    "Charlie Chaplin": {
+        dob: "16/04/1889",
+        height: "1m65 · Hài hình thể & Châm biếm xã hội",
+        awards: "3 giải Oscar (bao gồm Oscar Danh dự trọn đời)",
+        style: "Hài · Gia đình · Chính kịch",
+        paragraphs: [
+            "Ngài Charles Spencer Chaplin là tượng đài bất tử của lịch sử điện ảnh thế giới. Nhân vật 'Chàng Lang Thang' (The Tramp) với chiếc mũ quả dưa và cây gậy ba-toong đã vượt qua mọi rào cản ngôn ngữ suốt hơn một thế kỷ.",
+            "Không chỉ đóng vai chính, ông còn tự viết kịch bản, đạo diễn, sản xuất và sáng tác nhạc phim cho các kiệt tác như The Kid và The Gold Rush.",
+        ],
+    },
+    "Buster Keaton": {
+        dob: "04/10/1895",
+        height: "1m65 · Bậc thầy cú máy thật không kỹ xảo",
+        awards: "Giải Oscar Danh dự thành tựu điện ảnh",
+        style: "Hành động · Hài · Phiêu lưu",
+        paragraphs: [
+            "Được mệnh danh là 'Gương mặt đá vĩ đại', Buster Keaton thực hiện toàn bộ các pha mạo hiểm tốc độ cao bằng chính thể lực và tính toán cơ học chính xác đến từng centimet.",
+            "Các bộ phim như The General hay Sherlock Jr. đến nay vẫn được giảng dạy tại mọi trường điện ảnh như chuẩn mực về dàn dựng cảnh hành động hài.",
+        ],
+    },
+    "Fritz Lang": {
+        dob: "05/12/1890",
+        height: "Kiến trúc vị lai & Chủ nghĩa biểu hiện Đức",
+        awards: "Giải thưởng Thành tựu Điện ảnh Đức, Huân chương Nghệ thuật",
+        style: "Khoa học viễn tưởng · Bí ẩn · Chính kịch",
+        paragraphs: [
+            "Fritz Lang là một trong những nhà làm phim có tầm ảnh hưởng sâu rộng nhất thế kỷ 20. Kiệt tác Metropolis (1927) của ông đã đặt nền móng hình ảnh cho toàn bộ dòng phim khoa học viễn tưởng hiện đại từ Star Wars đến Blade Runner.",
+        ],
+    },
+    "Alfred Hitchcock": {
+        dob: "13/08/1899",
+        height: "Bậc thầy dòng phim hồi hộp (Master of Suspense)",
+        awards: "Giải Irving G. Thalberg Memorial (Oscar), Quả Cầu Vàng",
+        style: "Trinh thám · Bí ẩn · Giật gân",
+        paragraphs: [
+            "Alfred Hitchcock định hình nên ngôn ngữ điện ảnh hiện đại về tâm lý hồi hộp, cách dẫn dắt góc nhìn khán giả và cú ngoặt bất ngờ.",
+            "Bộ phim kinh điển The Lodger đánh dấu tác phẩm trinh thám đúng chất 'Hitchcock' đầu tiên trong sự nghiệp lẫy lừng của ông.",
+        ],
+    },
+};
+
+function readLikes() {
+    try {
+        return JSON.parse(localStorage.getItem("dut-cinema.likes") || "{}");
+    } catch {
+        return {};
     }
-    openModal({
-        tag: post.category === "review" ? "Bình luận phim" : "Blog điện ảnh",
-        title: post.title,
-        bodyNodes: nodes,
-        origin,
+}
+
+function toggleLikeItem(likeKey, baseLikes, button) {
+    const map = readLikes();
+    const liked = !map[likeKey];
+    map[likeKey] = liked;
+    try {
+        localStorage.setItem("dut-cinema.likes", JSON.stringify(map));
+    } catch {
+        // Ignore storage errors
+    }
+    const count = baseLikes + (liked ? 1 : 0);
+    button.setAttribute("aria-pressed", String(liked));
+    button.textContent = liked ? `✓ Đã thích (${count.toLocaleString("vi-VN")})` : `👍 Thích (${count.toLocaleString("vi-VN")})`;
+}
+
+function createLikeAndViewRow(likeKey, baseLikes, views) {
+    const actions = element("div", null, "corner-actions-row");
+    const likesMap = readLikes();
+    const liked = Boolean(likesMap[likeKey]);
+    const displayLikes = baseLikes + (liked ? 1 : 0);
+    const likeBtn = element(
+        "button",
+        liked ? `✓ Đã thích (${displayLikes.toLocaleString("vi-VN")})` : `👍 Thích (${displayLikes.toLocaleString("vi-VN")})`,
+        "btn-like",
+    );
+    likeBtn.type = "button";
+    likeBtn.setAttribute("aria-pressed", String(liked));
+    likeBtn.addEventListener("click", () => toggleLikeItem(likeKey, baseLikes, likeBtn));
+    actions.append(likeBtn, element("span", `👁 ${views.toLocaleString("vi-VN")}`, "views-pill"));
+    return actions;
+}
+
+function stableMetric(seedStr, minVal, span) {
+    let hash = 0;
+    for (const ch of String(seedStr || "dut")) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
+    return minVal + (hash % span);
+}
+
+function buildPeopleList(kind) {
+    const map = new Map();
+    const sourceMovies = allCatalogMovies.length ? allCatalogMovies : [...movies, ...comingSoonMovies];
+    for (const film of sourceMovies) {
+        const names = kind === "directors"
+            ? (film.director || "").split(",")
+            : (film.cast_list || "").split(",");
+        for (const raw of names) {
+            const name = raw.trim();
+            if (!name || name.toLowerCase().includes("đang cập nhật") || name.toLowerCase().includes("kinh điển")) continue;
+            if (!map.has(name)) {
+                map.set(name, {
+                    name,
+                    country: film.country || "Quốc tế",
+                    films: [],
+                    views: stableMetric(`${kind}:${name}`, 180000, 1900000),
+                    likes: stableMetric(`like:${kind}:${name}`, 420, 4800),
+                });
+            }
+            const entry = map.get(name);
+            if (!entry.films.some((f) => f.id === film.id)) entry.films.push(film);
+        }
+    }
+    return [...map.values()].map((person) => {
+        const primary = person.films[0];
+        const filmTitles = person.films.map((f) => f.title).join(", ");
+        const roleLabel = kind === "directors" ? "Đạo diễn" : "Diễn viên";
+        const custom = ARTIST_PROFILES[person.name];
+        const genres = [...new Set(person.films.flatMap((f) => (f.genre || "").split("·").map((g) => g.trim()).filter(Boolean)))].join(", ");
+        const bioParagraphs = custom?.paragraphs || [
+            `${person.name} là ${roleLabel.toLowerCase()} gắn liền với các tác phẩm nổi bật ${filmTitles} hiện đang có mặt trong danh mục điện ảnh của DUT Cinema.`,
+            `Với phong cách thể hiện đặc trưng thuộc dòng phim ${genres || "điện ảnh"}, các tác phẩm của ${person.name} luôn nhận được sự quan tâm lớn từ khán giả yêu điện ảnh.`,
+        ];
+        return {
+            ...person,
+            roleLabel,
+            dob: custom?.dob || "Đang cập nhật",
+            heightOrStyle: custom?.height || (genres || "Đa dạng thể loại"),
+            awards: custom?.awards || "Nhiều đề cử & giải thưởng điện ảnh uy tín",
+            specialty: custom?.style || genres || "Điện ảnh",
+            bio: bioParagraphs[0],
+            bioParagraphs,
+            posterKey: primary?.id || primary?.title || "",
+            posterUrl: primary?.poster_url || "",
+        };
     });
 }
 
-function renderBlogCards() {
-    const posts = (catalogData.blog_posts || []).filter(
-        (p) => activeBlogCat === "all" || p.category === activeBlogCat,
+function buildBreadcrumb(containerId, items) {
+    const nav = $(containerId);
+    nav.replaceChildren();
+    items.forEach((item, index) => {
+        if (index > 0) nav.append(element("span", "/", "muted"));
+        if (item.href) {
+            const link = element("a", item.label);
+            link.href = item.href;
+            nav.append(link);
+        } else {
+            const current = element("span", item.label);
+            current.setAttribute("aria-current", "page");
+            nav.append(current);
+        }
+    });
+}
+
+function showCornerPanel(panelId) {
+    show("blog-view");
+    for (const id of ["blog-list-panel", "person-detail-panel", "article-detail-panel"]) {
+        $(id).hidden = id !== panelId;
+    }
+}
+
+async function openPersonDetail(role, name, pushState = true) {
+    const normalizedRole = role === "directors" ? "directors" : "actors";
+    showCornerPanel("person-detail-panel");
+    await ensureCatalogData();
+    setupSidebarQuickBook();
+
+    const people = buildPeopleList(normalizedRole);
+    const person = people.find((p) => p.name.toLowerCase() === name.toLowerCase()) || {
+        name,
+        roleLabel: normalizedRole === "directors" ? "Đạo diễn" : "Diễn viên",
+        country: "Quốc tế",
+        dob: "Đang cập nhật",
+        heightOrStyle: "Điện ảnh",
+        awards: "Đang cập nhật",
+        specialty: "Điện ảnh",
+        bioParagraphs: [`Thông tin chi tiết về ${name} tại DUT Cinema đang được tiếp tục cập nhật.`],
+        films: [],
+        views: stableMetric(`${normalizedRole}:${name}`, 120000, 900000),
+        likes: stableMetric(`like:${normalizedRole}:${name}`, 250, 2000),
+        posterKey: "",
+        posterUrl: "",
+    };
+
+    if (pushState) {
+        history.pushState(null, "", `/?view=person&role=${encodeURIComponent(normalizedRole)}&name=${encodeURIComponent(person.name)}`);
+    }
+
+    buildBreadcrumb("person-breadcrumb", [
+        { label: "Trang chủ", href: "/" },
+        { label: "Góc Điện Ảnh", href: "/?view=blog&tab=genres" },
+        { label: person.roleLabel, href: `/?view=blog&tab=${normalizedRole}` },
+        { label: person.name },
+    ]);
+
+    const portrait = $("person-portrait");
+    portrait.replaceChildren();
+    const imgSrc = posterUrl(person.posterKey, person.posterUrl);
+    if (imgSrc) {
+        const img = element("img");
+        img.alt = person.name;
+        img.src = imgSrc;
+        portrait.append(img);
+    }
+
+    setText("person-role-tag", person.roleLabel);
+    setText("person-name", person.name);
+    $("person-actions-row").replaceChildren(
+        createLikeAndViewRow(`${normalizedRole}:${person.name}`, person.likes, person.views),
     );
-    $("blog-grid").replaceChildren(...posts.map((post) => {
-        const card = element("article", null, "blog-card");
-        const top = element("div");
-        top.append(
-            element("span", post.category === "review" ? "Bình luận phim" : "Blog điện ảnh", "promo-tag"),
-            element("h2", post.title),
-            element("p", post.summary),
-        );
-        const foot = element("div", null, "blog-meta");
-        foot.append(element("span", `${post.author} · ${post.published_label}`), element("span", `${post.views.toLocaleString("vi-VN")} lượt xem`));
-        const readBtn = element("button", "Đọc bài viết", "button secondary");
-        readBtn.type = "button";
-        readBtn.addEventListener("click", () => openBlogModal(post, readBtn));
-        card.append(top, foot, readBtn);
-        return card;
+
+    const facts = [
+        ["Vai trò", person.roleLabel],
+        ["Ngày sinh", person.dob],
+        [normalizedRole === "directors" ? "Phong cách" : "Chiều cao", person.heightOrStyle],
+        ["Quốc tịch", person.country],
+        ["Sở trường", person.specialty],
+        ["Giải thưởng", person.awards],
+    ];
+    $("person-facts").replaceChildren(...facts.map(([k, v]) => {
+        const row = element("div");
+        row.append(element("dt", `${k}:`), element("dd", v));
+        return row;
     }));
+
+    $("person-bio-body").replaceChildren(...person.bioParagraphs.map((p) => element("p", p)));
+    setText("person-films-heading", normalizedRole === "directors" ? "PHIM ĐÃ ĐẠO DIỄN" : "PHIM ĐÃ THAM GIA");
+
+    $("person-films-list").replaceChildren(...(person.films.length
+        ? person.films.map((film) => buildCornerCard({
+            thumbKey: film.id ?? film.title,
+            thumbUrl: film.poster_url || "",
+            badge: `${film.age_rating || "P"} · ★ ${Number(film.rating || 8.5).toFixed(1)}`,
+            title: film.title,
+            likeKey: `movie:${film.id}`,
+            baseLikes: stableMetric(`like:movie:${film.id}`, 650, 9500),
+            views: stableMetric(`movie:${film.id}`, 120000, 2600000),
+            submeta: `${film.genre} · ${film.duration_minutes || film.duration} phút`,
+            excerpt: film.synopsis || "",
+            onOpen: () => { location.href = `/?view=movie&id=${encodeURIComponent(film.id)}`; },
+        }))
+        : [element("p", "Chưa có tác phẩm nào được liên kết.", "muted")]));
+    window.scrollTo(0, 0);
+}
+
+async function openArticleDetail(postId, pushState = true) {
+    showCornerPanel("article-detail-panel");
+    await ensureCatalogData();
+    setupSidebarQuickBook();
+
+    const posts = catalogData.blog_posts || [];
+    const post = posts.find((p) => p.id === postId) || posts[0];
+    if (!post) {
+        selectBlogTab("reviews");
+        return;
+    }
+
+    if (pushState) {
+        history.pushState(null, "", `/?view=article&id=${encodeURIComponent(post.id)}`);
+    }
+
+    const isReview = post.category === "review";
+    const tabKey = isReview ? "reviews" : "articles";
+    buildBreadcrumb("article-breadcrumb", [
+        { label: "Trang chủ", href: "/" },
+        { label: "Góc Điện Ảnh", href: "/?view=blog&tab=genres" },
+        { label: isReview ? "Bình luận phim" : "Blog điện ảnh", href: `/?view=blog&tab=${tabKey}` },
+        { label: post.title },
+    ]);
+
+    setText("article-cat-tag", isReview ? "Bình luận phim" : "Blog điện ảnh");
+    setText("article-title", post.title);
+
+    const metaRow = $("article-meta-row");
+    metaRow.replaceChildren(
+        element("span", `${post.author} · ${post.published_label}`, "muted"),
+        createLikeAndViewRow(`post:${post.id}`, stableMetric(`like:post:${post.id}`, 210, 1800), Number(post.views || 0)),
+    );
+
+    const heroWrap = $("article-hero-wrap");
+    heroWrap.replaceChildren();
+    const linkedMovie = post.movie_id
+        ? (allCatalogMovies.find((m) => m.id === post.movie_id) || movies.find((m) => m.id === post.movie_id))
+        : null;
+    const art = linkedMovie ? filmArt.get(linkedMovie.id ?? linkedMovie.title) : null;
+    const heroSrc = art?.banner ? `/assets/films/${art.banner}` : posterUrl(post.movie_id || "", linkedMovie?.poster_url || "");
+    if (heroSrc) {
+        const img = element("img");
+        img.alt = post.title;
+        img.src = heroSrc;
+        heroWrap.append(img);
+        heroWrap.hidden = false;
+    } else {
+        heroWrap.hidden = true;
+    }
+
+    setText("article-summary", post.summary);
+    const bodyParagraphs = (post.content || "").split(/\n+/).filter(Boolean);
+    $("article-content-body").replaceChildren(...bodyParagraphs.map((p) => element("p", p)));
+
+    const movieBox = $("article-movie-box");
+    if (linkedMovie) {
+        movieBox.replaceChildren();
+        const left = element("div");
+        left.append(
+            element("span", `Phim liên quan · ${linkedMovie.age_rating || "P"} · ★ ${Number(linkedMovie.rating || 8.5).toFixed(1)}`, "promo-tag"),
+            element("h3", linkedMovie.title),
+            element("p", `${linkedMovie.genre} · ${linkedMovie.duration_minutes || linkedMovie.duration} phút`, "muted"),
+        );
+        const cta = element("a", "Xem lịch chiếu & Đặt vé", "button primary");
+        cta.href = `/?view=movie&id=${encodeURIComponent(linkedMovie.id)}`;
+        movieBox.append(left, cta);
+        movieBox.hidden = false;
+    } else {
+        movieBox.hidden = true;
+    }
+
+    const related = posts.filter((p) => p.id !== post.id).slice(0, 3);
+    $("article-related-list").replaceChildren(...related.map((item) => buildCornerCard({
+        thumbKey: item.movie_id || "saigon",
+        badge: item.category === "review" ? "Review phim" : "Blog",
+        title: item.title,
+        likeKey: `post:${item.id}`,
+        baseLikes: stableMetric(`like:post:${item.id}`, 210, 1800),
+        views: Number(item.views || 0),
+        submeta: `${item.author} · ${item.published_label}`,
+        excerpt: item.summary,
+        onOpen: () => { void openArticleDetail(item.id); },
+    })));
+    window.scrollTo(0, 0);
+}
+
+function buildCornerCard({ thumbKey, thumbUrl = "", badge = "", title, likeKey, baseLikes, views, excerpt, submeta = "", onOpen }) {
+    const card = element("article", null, "corner-card");
+    const thumb = element("div", null, "corner-thumb");
+    const imgSrc = posterUrl(thumbKey, thumbUrl);
+    if (imgSrc) {
+        const img = element("img");
+        img.alt = title;
+        img.loading = "lazy";
+        img.src = imgSrc;
+        img.addEventListener("error", () => img.remove(), { once: true });
+        thumb.append(img);
+    }
+    if (badge) thumb.append(element("span", badge, "corner-thumb-badge"));
+    thumb.addEventListener("click", () => onOpen(thumb));
+
+    const body = element("div", null, "corner-body");
+    const titleBtn = element("button", title, "corner-title-btn");
+    titleBtn.type = "button";
+    titleBtn.addEventListener("click", () => onOpen(titleBtn));
+
+    const actions = createLikeAndViewRow(likeKey, baseLikes, views);
+
+    body.append(titleBtn, actions);
+    if (submeta) body.append(element("p", submeta, "corner-submeta"));
+    body.append(element("p", excerpt, "corner-excerpt"));
+    card.append(thumb, body);
+    return card;
+}
+
+function populateCornerFilters() {
+    const sourceMovies = allCatalogMovies.length ? allCatalogMovies : [...movies, ...comingSoonMovies];
+    const genres = [...new Set(
+        sourceMovies.flatMap((m) => (m.genre || "").split("·").map((g) => g.trim()).filter(Boolean)),
+    )].sort((a, b) => a.localeCompare(b, "vi"));
+    const countries = [...new Set(sourceMovies.map((m) => m.country).filter(Boolean))].sort((a, b) => a.localeCompare(b, "vi"));
+    const years = [...new Set(
+        sourceMovies.map((m) => (m.release_date ? String(m.release_date).slice(0, 4) : "2026")),
+    )].sort((a, b) => b.localeCompare(a));
+
+    $("cf-genre").replaceChildren(option("", "Thể Loại"), ...genres.map((g) => option(g, g)));
+    $("cf-country").replaceChildren(option("", "Quốc Gia"), ...countries.map((c) => option(c, c)));
+    $("cf-year").replaceChildren(option("", "Năm"), ...years.map((y) => option(y, y)));
+}
+
+function syncCornerFilterVisibility() {
+    const isGenres = activeBlogTab === "genres";
+    const isPeople = activeBlogTab === "actors" || activeBlogTab === "directors";
+    $("cf-genre").hidden = !isGenres;
+    $("cf-year").hidden = !isGenres;
+    $("cf-status").hidden = !isGenres;
+    $("cf-country").hidden = !isGenres && !isPeople;
+    setText("blog-title", CORNER_TITLES[activeBlogTab] || "GÓC ĐIỆN ẢNH");
+}
+
+function renderCornerContent() {
+    syncCornerFilterVisibility();
+    const genre = $("cf-genre").value;
+    const country = $("cf-country").value;
+    const year = $("cf-year").value;
+    const status = $("cf-status").value;
+    const sortBy = $("cf-sort").value;
+    const q = searchText($("cf-search").value);
+    const likesMap = readLikes();
+
+    let cards = [];
+
+    if (activeBlogTab === "genres") {
+        let list = (allCatalogMovies.length ? allCatalogMovies : [...movies, ...comingSoonMovies]).map((m) => ({
+            ...m,
+            views: stableMetric(`movie:${m.id}`, 120000, 2600000),
+            likes: stableMetric(`like:movie:${m.id}`, 650, 9500),
+            year: m.release_date ? String(m.release_date).slice(0, 4) : "2026",
+        }));
+        if (genre) list = list.filter((m) => (m.genre || "").includes(genre));
+        if (country) list = list.filter((m) => m.country === country);
+        if (year) list = list.filter((m) => m.year === year);
+        if (status) list = list.filter((m) => (m.release_status || "NOW_SHOWING") === status);
+        if (q) list = list.filter((m) => searchText(`${m.title} ${m.genre} ${m.synopsis}`).includes(q));
+
+        if (sortBy === "rating") list.sort((a, b) => Number(b.rating || 0) - Number(a.rating || 0));
+        else if (sortBy === "likes") list.sort((a, b) => (b.likes + (likesMap[`movie:${b.id}`] ? 1 : 0)) - (a.likes + (likesMap[`movie:${a.id}`] ? 1 : 0)));
+        else if (sortBy === "name") list.sort((a, b) => a.title.localeCompare(b.title, "vi"));
+        else list.sort((a, b) => b.views - a.views);
+
+        cards = list.map((film) => buildCornerCard({
+            thumbKey: film.id ?? film.title,
+            thumbUrl: film.poster_url || "",
+            badge: `${film.age_rating || "P"} · ★ ${Number(film.rating || 8.5).toFixed(1)}`,
+            title: film.title,
+            likeKey: `movie:${film.id}`,
+            baseLikes: film.likes,
+            views: film.views,
+            submeta: `${film.genre} · ${film.country || "Quốc tế"} · ${film.duration_minutes || film.duration} phút`,
+            excerpt: film.synopsis || "Tác phẩm đang được trình chiếu tại hệ thống rạp DUT Cinema.",
+            onOpen: () => { location.href = `/?view=movie&id=${encodeURIComponent(film.id)}`; },
+        }));
+    } else if (activeBlogTab === "actors" || activeBlogTab === "directors") {
+        let list = buildPeopleList(activeBlogTab);
+        if (country) list = list.filter((p) => p.country === country);
+        if (q) list = list.filter((p) => searchText(`${p.name} ${p.bio} ${p.films.map((f) => f.title).join(" ")}`).includes(q));
+
+        if (sortBy === "name") list.sort((a, b) => a.name.localeCompare(b.name, "vi"));
+        else if (sortBy === "likes") list.sort((a, b) => b.likes - a.likes);
+        else list.sort((a, b) => b.views - a.views);
+
+        cards = list.map((person) => buildCornerCard({
+            thumbKey: person.posterKey,
+            thumbUrl: person.posterUrl,
+            badge: activeBlogTab === "directors" ? "Đạo diễn" : "Diễn viên",
+            title: person.name,
+            likeKey: `${activeBlogTab}:${person.name}`,
+            baseLikes: person.likes,
+            views: person.views,
+            submeta: `${person.country} · Tác phẩm: ${person.films.map((f) => f.title).join(", ")}`,
+            excerpt: person.bio,
+            onOpen: () => { void openPersonDetail(activeBlogTab, person.name); },
+        }));
+    } else {
+        const targetCategory = activeBlogTab === "reviews" ? "review" : "blog";
+        let list = (catalogData.blog_posts || [])
+            .filter((p) => p.category === targetCategory)
+            .map((p) => ({
+                ...p,
+                likes: stableMetric(`like:post:${p.id}`, 210, 1800),
+            }));
+        if (q) list = list.filter((p) => searchText(`${p.title} ${p.summary} ${p.author}`).includes(q));
+
+        if (sortBy === "name") list.sort((a, b) => a.title.localeCompare(b.title, "vi"));
+        else if (sortBy === "likes") list.sort((a, b) => b.likes - a.likes);
+        else list.sort((a, b) => Number(b.views || 0) - Number(a.views || 0));
+
+        cards = list.map((post) => buildCornerCard({
+            thumbKey: post.movie_id || "saigon",
+            badge: post.category === "review" ? "Review phim" : "Blog",
+            title: post.title,
+            likeKey: `post:${post.id}`,
+            baseLikes: post.likes,
+            views: Number(post.views || 0),
+            submeta: `${post.author} · ${post.published_label}`,
+            excerpt: post.summary,
+            onOpen: () => { void openArticleDetail(post.id); },
+        }));
+    }
+
+    $("blog-grid").replaceChildren(...cards);
+    $("corner-empty").hidden = cards.length > 0;
+}
+
+function setupSidebarQuickBook() {
+    const filmSelect = $("sb-quick-film");
+    const roomSelect = $("sb-quick-room");
+    const dateSelect = $("sb-quick-date");
+    const screenSelect = $("sb-quick-screening");
+    const submitBtn = $("sb-quick-submit");
+
+    const setSelect = (node, placeholder, opts) => {
+        node.replaceChildren(option("", placeholder), ...opts);
+        node.disabled = opts.length === 0;
+    };
+    const filmSlots = () => movies.find((m) => m.key === filmSelect.value)?.screenings ?? [];
+    const roomSlots = () => filmSlots().filter((s) => cinemaKey(s) === roomSelect.value);
+
+    const updateScreens = () => {
+        const slots = roomSlots().filter((s) => dateLabel(s.starts_at) === dateSelect.value);
+        setSelect(screenSelect, "Chọn suất", slots.map((s) => option(s.id, `${shortTime(s.starts_at)} · ${s.format || "2D"}`)));
+        submitBtn.disabled = !screenSelect.value;
+    };
+    const updateDates = () => {
+        const dates = new Map(roomSlots().map((s) => [dateLabel(s.starts_at), formatShortDate.format(new Date(s.starts_at))]));
+        setSelect(dateSelect, "Chọn ngày", [...dates].map(([k, v]) => option(k, v)));
+        if (dates.size === 1) dateSelect.selectedIndex = 1;
+        updateScreens();
+    };
+    const updateRooms = () => {
+        const rooms = new Map(filmSlots().map((s) => [cinemaKey(s), s.cinema_name ? `${s.cinema_name} (${s.city})` : s.auditorium]));
+        setSelect(roomSelect, "Chọn rạp", [...rooms].map(([k, v]) => option(k, v)));
+        if (rooms.size === 1) roomSelect.selectedIndex = 1;
+        updateDates();
+    };
+
+    setSelect(filmSelect, "Chọn phim", movies.map((m) => option(m.key, m.title)));
+    updateRooms();
+
+    filmSelect.onchange = updateRooms;
+    roomSelect.onchange = updateDates;
+    dateSelect.onchange = updateScreens;
+    screenSelect.onchange = () => { submitBtn.disabled = !screenSelect.value; };
+    $("sb-quick-form").onsubmit = (event) => {
+        event.preventDefault();
+        const slot = roomSlots().find((s) => s.id === screenSelect.value);
+        if (slot) openScreening(slot, submitBtn);
+    };
+
+    renderSidebarMovies("sb-now-list");
+}
+
+function selectBlogTab(tabName) {
+    activeBlogTab = VALID_BLOG_TABS.has(tabName) ? tabName : "genres";
+    document.querySelectorAll("#corner-tablist .movie-tab").forEach((btn) => {
+        btn.setAttribute("aria-selected", String(btn.dataset.blogTab === activeBlogTab));
+    });
+    const nextUrl = `/?view=blog&tab=${encodeURIComponent(activeBlogTab)}`;
+    if (location.search !== `?view=blog&tab=${activeBlogTab}`) {
+        history.replaceState(null, "", nextUrl);
+    }
+    renderCornerContent();
 }
 
 async function loadBlogView() {
-    show("blog-view");
+    showCornerPanel("blog-list-panel");
     await ensureCatalogData();
-    document.querySelectorAll(".blog-tabs .movie-tab").forEach((tab) => {
-        tab.onclick = () => {
-            activeBlogCat = tab.dataset.blogCat;
-            document.querySelectorAll(".blog-tabs .movie-tab").forEach((b) => {
-                b.setAttribute("aria-selected", String(b === tab));
-            });
-            renderBlogCards();
-        };
+    populateCornerFilters();
+    if (page.get("genre") && [...$("cf-genre").options].some((opt) => opt.value === page.get("genre"))) {
+        $("cf-genre").value = page.get("genre");
+    }
+    setupSidebarQuickBook();
+
+    document.querySelectorAll("#corner-tablist .movie-tab").forEach((tab) => {
+        tab.onclick = () => selectBlogTab(tab.dataset.blogTab);
     });
-    renderBlogCards();
+    for (const id of ["cf-genre", "cf-country", "cf-year", "cf-status", "cf-sort"]) {
+        $(id).onchange = renderCornerContent;
+    }
+    $("cf-search").oninput = renderCornerContent;
+
+    selectBlogTab(activeBlogTab);
 }
 
 /* ---------------- BOOKING STEP 1: SEATING ---------------- */
@@ -1320,6 +2016,27 @@ function renderConcessionsSummary() {
 
 $("retry-quote").addEventListener("click", renderConcessionsSummary);
 
+const CONCESSION_ART = new Set([
+    "combo-1-big",
+    "combo-2-big",
+    "combo-u22",
+    "combo-imax",
+    "popcorn-caramel",
+    "pepsi-large",
+]);
+
+function concessionImageUrl(item) {
+    if (CONCESSION_ART.has(item.id)) return `/assets/concessions/${item.id}.jpg`;
+    const text = searchText(`${item.name} ${item.category || ""}`);
+    if (text.includes("nuoc") || text.includes("pepsi") || text.includes("coca") || text.includes("drink")) {
+        return "/assets/concessions/pepsi-large.jpg";
+    }
+    if (text.includes("bap") && !text.includes("combo")) {
+        return "/assets/concessions/popcorn-caramel.jpg";
+    }
+    return "/assets/concessions/combo-1-big.jpg";
+}
+
 function renderConcessionsStep() {
     setText("concessions-movie-title", booking.movie_title);
     setText("concessions-movie-details", `${booking.cinema_name || "DUT Nguyễn Du"} · ${screeningLabel(booking)}`);
@@ -1327,6 +2044,14 @@ function renderConcessionsStep() {
 
     $("concession-list").replaceChildren(...(catalogData.concessions || []).map((item) => {
         const row = element("article", null, "concession-item");
+        const thumb = element("div", null, "concession-thumb");
+        const img = element("img");
+        img.alt = item.name;
+        img.loading = "lazy";
+        img.src = concessionImageUrl(item);
+        img.addEventListener("error", () => img.remove(), { once: true });
+        thumb.append(img);
+
         const info = element("div", null, "concession-info");
         const titleRow = element("div", null, "concession-title-row");
         titleRow.append(element("h3", item.name));
@@ -1357,7 +2082,7 @@ function renderConcessionsStep() {
         dec.onclick = () => changeQuantity(-1);
         inc.onclick = () => changeQuantity(1);
         ctrl.append(dec, qtySpan, inc);
-        row.append(info, ctrl);
+        row.append(thumb, info, ctrl);
         return row;
     }));
 
@@ -2680,6 +3405,23 @@ window.addEventListener("pageshow", (event) => {
     if (event.persisted && (bookingId || page.has("view"))) location.reload();
 });
 
+window.addEventListener("popstate", () => {
+    const next = new URLSearchParams(location.search);
+    const v = next.get("view") || "";
+    if (v === "blog") {
+        activeBlogTab = VALID_BLOG_TABS.has(next.get("tab")) ? next.get("tab") : "genres";
+        void loadBlogView();
+    } else if (v === "person" && next.get("name")) {
+        void openPersonDetail(next.get("role") || "actors", next.get("name"), false);
+    } else if (v === "article" && next.get("id")) {
+        void openArticleDetail(next.get("id"), false);
+    } else if (v === "movie" && next.get("id")) {
+        void loadMovieDetail(next.get("id"));
+    } else {
+        location.reload();
+    }
+});
+
 if (bookingId) {
     show("order");
     void refreshOrder();
@@ -2697,6 +3439,10 @@ if (bookingId) {
     void loadPromotionsView();
 } else if (currentView === "blog") {
     void loadBlogView();
+} else if (currentView === "person" && page.get("name")) {
+    void openPersonDetail(page.get("role") || "actors", page.get("name"), false);
+} else if (currentView === "article" && page.get("id")) {
+    void openArticleDetail(page.get("id"), false);
 } else if (currentView === "tickets") {
     show("my-tickets");
     void loadSavedOrders();

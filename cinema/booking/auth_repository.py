@@ -64,6 +64,14 @@ class AccountRepository:
             """
         ).fetchall()
 
+    def admin_ids_for_update(self, connection):
+        return [
+            row["id"]
+            for row in connection.execute(
+                "SELECT id FROM cinema_booking.accounts WHERE role = 'ADMIN' FOR UPDATE"
+            ).fetchall()
+        ]
+
     def update_role(self, connection, account_id, role):
         return connection.execute(
             """

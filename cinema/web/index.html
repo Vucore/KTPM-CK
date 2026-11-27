@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#ffffff">
     <title>DUT Cinema · Hệ thống rạp chiếu phim &amp; đặt vé trực tuyến</title>
-    <link rel="stylesheet" href="/assets/style.css?v=checkout-6">
-    <script type="module" src="/assets/app.js?v=7"></script>
+    <link rel="stylesheet" href="/assets/style.css?v=checkout-10">
+    <script type="module" src="/assets/app.js?v=11"></script>
 </head>
 <body>
     <a class="skip" href="#main">Đến nội dung chính</a>
@@ -25,7 +25,18 @@
                 </a>
                 <nav class="primary-nav" aria-label="Chuyên mục chính">
                     <a id="nav-movies" class="nav-link" href="/#lich-chieu">Phim</a>
-                    <a id="nav-blog" class="nav-link" href="/?view=blog">Góc Điện Ảnh</a>
+                    <div class="nav-dropdown">
+                        <a id="nav-blog" class="nav-link" href="/?view=blog&amp;tab=genres" aria-haspopup="true">
+                            Góc Điện Ảnh <span class="nav-caret" aria-hidden="true">▾</span>
+                        </a>
+                        <div class="nav-dropdown-menu" role="menu">
+                            <a href="/?view=blog&amp;tab=genres" class="nav-dropdown-item" role="menuitem">Thể Loại Phim</a>
+                            <a href="/?view=blog&amp;tab=actors" class="nav-dropdown-item" role="menuitem">Diễn Viên</a>
+                            <a href="/?view=blog&amp;tab=directors" class="nav-dropdown-item" role="menuitem">Đạo Diễn</a>
+                            <a href="/?view=blog&amp;tab=reviews" class="nav-dropdown-item" role="menuitem">Bình Luận Phim</a>
+                            <a href="/?view=blog&amp;tab=articles" class="nav-dropdown-item" role="menuitem">Blog Điện Ảnh</a>
+                        </div>
+                    </div>
                     <a id="nav-promotions" class="nav-link" href="/?view=promotions">Sự Kiện</a>
                     <a id="nav-cinemas" class="nav-link" href="/?view=cinemas">Rạp &amp; Giá Vé</a>
                 </nav>
@@ -220,44 +231,69 @@
         </section>
 
         <!-- MOVIE DETAIL -->
-        <section id="movie-detail" class="wrap flow" aria-labelledby="detail-title" hidden>
-            <button class="back" id="detail-back" type="button"><span class="arrow left" aria-hidden="true"></span> Tất cả phim</button>
-            <p id="detail-status" class="panel-note" role="status" hidden></p>
+        <section id="movie-detail" class="movie-detail-page" aria-labelledby="detail-title" hidden>
+            <p id="detail-status" class="wrap panel-note" role="status" hidden></p>
             <div id="detail-content" hidden>
-                <div class="detail-hero">
-                    <div class="detail-poster" id="detail-poster"></div>
-                    <div class="detail-info">
-                        <div class="detail-badges" id="detail-badges"></div>
-                        <h1 id="detail-title"></h1>
-                        <p id="detail-meta" class="muted"></p>
-                        <dl class="detail-facts" id="detail-facts"></dl>
-                        <div class="detail-actions">
-                            <button id="detail-trailer-btn" class="button secondary" type="button" hidden>Xem Trailer</button>
-                            <a id="detail-jump-showtimes" class="button primary" href="#detail-showtimes">Chọn suất chiếu</a>
-                        </div>
+                <div class="detail-backdrop">
+                    <div id="detail-backdrop-visual" class="detail-backdrop-visual" aria-hidden="true"></div>
+                    <div class="detail-backdrop-overlay">
+                        <button id="detail-play-btn" class="detail-play-btn" type="button" aria-label="Phát Trailer phim">
+                            <span class="play-triangle" aria-hidden="true"></span>
+                        </button>
                     </div>
                 </div>
-                <section class="detail-synopsis panel">
-                    <h2>Nội dung phim</h2>
-                    <p id="detail-synopsis"></p>
-                </section>
-                <section id="detail-showtimes" class="detail-showtimes">
-                    <div class="section-heading">
-                        <h2>Lịch chiếu</h2>
-                        <div class="schedule-filters">
-                            <div class="schedule-filter">
-                                <label for="detail-city">Khu vực</label>
-                                <select id="detail-city"><option value="">Toàn quốc</option></select>
+
+                <div class="wrap detail-shell">
+                    <div class="detail-layout">
+                        <div class="detail-main">
+                            <button class="back" id="detail-back" type="button"><span class="arrow left" aria-hidden="true"></span> Tất cả phim</button>
+
+                            <div class="detail-hero-card">
+                                <div class="detail-poster" id="detail-poster"></div>
+                                <div class="detail-info">
+                                    <div class="detail-title-row">
+                                        <h1 id="detail-title"></h1>
+                                        <div class="detail-badges" id="detail-badges"></div>
+                                    </div>
+                                    <p id="detail-meta" class="detail-subline"></p>
+                                    <dl class="detail-facts" id="detail-facts"></dl>
+                                    <div class="detail-actions">
+                                        <button id="detail-trailer-btn" class="button secondary" type="button" hidden>Xem Trailer</button>
+                                        <a id="detail-jump-showtimes" class="button primary" href="#detail-showtimes">Chọn suất chiếu</a>
+                                    </div>
+                                </div>
                             </div>
-                            <div class="schedule-filter">
-                                <label for="detail-date">Ngày chiếu</label>
-                                <select id="detail-date"><option value="">Tất cả ngày</option></select>
-                            </div>
+
+                            <section class="detail-section">
+                                <h2 class="detail-section-title">Nội Dung Phim</h2>
+                                <p id="detail-synopsis" class="detail-synopsis-text"></p>
+                                <div id="detail-review-box" class="detail-review-box" hidden></div>
+                            </section>
+
+                            <section id="detail-showtimes" class="detail-section">
+                                <div class="detail-schedule-head">
+                                    <h2 class="detail-section-title">Lịch Chiếu</h2>
+                                    <div class="detail-schedule-filters">
+                                        <select id="detail-city" aria-label="Lọc theo khu vực"><option value="">Toàn quốc</option></select>
+                                        <select id="detail-cinema-filter" aria-label="Lọc theo cụm rạp"><option value="">Tất cả rạp</option></select>
+                                        <select id="detail-date" class="visually-hidden" aria-label="Ngày chiếu"><option value="">Tất cả ngày</option></select>
+                                    </div>
+                                </div>
+                                <div id="detail-date-tabs" class="detail-date-tabs" role="tablist" aria-label="Chọn ngày chiếu"></div>
+                                <p id="detail-showtimes-empty" class="history-empty" hidden>Phim hiện chưa mở suất chiếu tại khu vực hoặc ngày đã chọn.</p>
+                                <div id="detail-cinema-list" class="cinema-schedule-list"></div>
+                            </section>
                         </div>
+
+                        <aside class="detail-sidebar" aria-label="Phim đang chiếu khác">
+                            <div class="section-mini-head">
+                                <h3>PHIM ĐANG CHIẾU</h3>
+                                <a href="/#lich-chieu">Xem tất cả</a>
+                            </div>
+                            <div id="detail-now-list" class="sidebar-movie-list"></div>
+                        </aside>
                     </div>
-                    <p id="detail-showtimes-empty" class="history-empty" hidden>Phim hiện chưa mở suất chiếu tại khu vực đã chọn.</p>
-                    <div id="detail-cinema-list" class="cinema-schedule-list"></div>
-                </section>
+                </div>
             </div>
         </section>
 
@@ -300,18 +336,108 @@
             <div id="promotions-grid" class="promo-grid"></div>
         </section>
 
-        <!-- CINEMA CORNER / BLOG -->
-        <section id="blog-view" class="wrap flow" aria-labelledby="blog-title" hidden>
-            <div class="flow-heading">
-                <h1 id="blog-title">Góc Điện Ảnh</h1>
-                <p class="muted">Bình luận phim, tin tức hậu trường và cẩm nang thưởng thức điện ảnh.</p>
+        <!-- CINEMA CORNER / BLOG & ARTIST / ARTICLE DETAILS -->
+        <section id="blog-view" class="wrap flow blog-page" aria-labelledby="blog-title" hidden>
+            <div class="blog-layout">
+                <div class="blog-main">
+                    <!-- LIST PANEL -->
+                    <div id="blog-list-panel">
+                        <div class="section-heading corner-head">
+                            <h1 id="blog-title">PHIM ĐIỆN ẢNH</h1>
+                            <div class="movie-tabs blog-tabs" id="corner-tablist" role="tablist" aria-label="Chuyên mục Góc điện ảnh">
+                                <button class="movie-tab" type="button" data-blog-tab="genres" aria-selected="true">Thể Loại Phim</button>
+                                <button class="movie-tab" type="button" data-blog-tab="actors" aria-selected="false">Diễn Viên</button>
+                                <button class="movie-tab" type="button" data-blog-tab="directors" aria-selected="false">Đạo Diễn</button>
+                                <button class="movie-tab" type="button" data-blog-tab="reviews" aria-selected="false">Bình Luận Phim</button>
+                                <button class="movie-tab" type="button" data-blog-tab="articles" aria-selected="false">Blog Điện Ảnh</button>
+                            </div>
+                        </div>
+
+                        <div id="corner-filters" class="corner-filters">
+                            <select id="cf-genre" aria-label="Lọc theo thể loại"><option value="">Thể Loại</option></select>
+                            <select id="cf-country" aria-label="Lọc theo quốc gia"><option value="">Quốc Gia</option></select>
+                            <select id="cf-year" aria-label="Lọc theo năm"><option value="">Năm</option></select>
+                            <select id="cf-status" aria-label="Lọc theo trạng thái">
+                                <option value="">Đang Chiếu / Sắp</option>
+                                <option value="NOW_SHOWING">Đang Chiếu</option>
+                                <option value="COMING_SOON">Sắp Chiếu</option>
+                            </select>
+                            <select id="cf-sort" aria-label="Sắp xếp">
+                                <option value="views">Xem Nhiều Nhất</option>
+                                <option value="likes">Yêu Thích Nhất</option>
+                                <option value="rating">Đánh Giá Cao</option>
+                                <option value="name">Tên A - Z</option>
+                            </select>
+                            <input id="cf-search" type="search" placeholder="Tìm nhanh…" aria-label="Tìm kiếm trong Góc điện ảnh">
+                        </div>
+
+                        <p id="corner-empty" class="history-empty" hidden>Không có nội dung phù hợp với bộ lọc hiện tại.</p>
+                        <div id="blog-grid" class="corner-list"></div>
+                    </div>
+
+                    <!-- ACTOR / DIRECTOR DETAIL PANEL -->
+                    <div id="person-detail-panel" class="corner-detail-panel" hidden>
+                        <nav id="person-breadcrumb" class="breadcrumb" aria-label="Điều hướng"></nav>
+                        <div class="person-hero-card">
+                            <div id="person-portrait" class="person-portrait"></div>
+                            <div class="person-hero-info">
+                                <span id="person-role-tag" class="promo-tag">Diễn viên</span>
+                                <h1 id="person-name"></h1>
+                                <div id="person-actions-row" class="corner-actions-row"></div>
+                                <dl id="person-facts" class="detail-facts person-facts"></dl>
+                            </div>
+                        </div>
+
+                        <section class="detail-section">
+                            <h2 class="detail-section-title">TIỂU SỬ &amp; SỰ NGHIỆP</h2>
+                            <div id="person-bio-body" class="article-body"></div>
+                        </section>
+
+                        <section class="detail-section">
+                            <h2 id="person-films-heading" class="detail-section-title">PHIM ĐÃ THAM GIA</h2>
+                            <div id="person-films-list" class="corner-list"></div>
+                        </section>
+                    </div>
+
+                    <!-- REVIEW / BLOG ARTICLE DETAIL PANEL -->
+                    <div id="article-detail-panel" class="corner-detail-panel" hidden>
+                        <nav id="article-breadcrumb" class="breadcrumb" aria-label="Điều hướng"></nav>
+                        <span id="article-cat-tag" class="promo-tag">Bình luận phim</span>
+                        <h1 id="article-title" class="article-headline"></h1>
+                        <div id="article-meta-row" class="corner-actions-row"></div>
+                        <div id="article-hero-wrap" class="article-hero-wrap" hidden></div>
+                        <p id="article-summary" class="article-lead"></p>
+                        <div id="article-content-body" class="article-body"></div>
+                        <div id="article-movie-box" class="detail-review-box" hidden></div>
+
+                        <section class="detail-section">
+                            <h2 class="detail-section-title">BÀI VIẾT LIÊN QUAN</h2>
+                            <div id="article-related-list" class="corner-list"></div>
+                        </section>
+                    </div>
+                </div>
+
+                <aside class="blog-sidebar" aria-label="Mua vé nhanh và phim đang chiếu">
+                    <form id="sb-quick-form" class="sidebar-quick-book">
+                        <div class="sidebar-quick-head">Mua Vé Nhanh</div>
+                        <div class="sidebar-quick-body">
+                            <select id="sb-quick-film" aria-label="Chọn phim" required><option value="">Chọn phim</option></select>
+                            <select id="sb-quick-room" aria-label="Chọn rạp" required disabled><option value="">Chọn rạp</option></select>
+                            <select id="sb-quick-date" aria-label="Chọn ngày" required disabled><option value="">Chọn ngày</option></select>
+                            <select id="sb-quick-screening" aria-label="Chọn suất" required disabled><option value="">Chọn suất</option></select>
+                            <button id="sb-quick-submit" class="button primary panel-action" type="submit" disabled>Mua vé nhanh</button>
+                        </div>
+                    </form>
+
+                    <div class="sidebar-now-showing">
+                        <div class="section-mini-head">
+                            <h3>PHIM ĐANG CHIẾU</h3>
+                            <a href="/#lich-chieu">Xem tất cả</a>
+                        </div>
+                        <div id="sb-now-list" class="sidebar-movie-list"></div>
+                    </div>
+                </aside>
             </div>
-            <div class="movie-tabs blog-tabs" role="tablist" aria-label="Lọc chuyên mục Góc điện ảnh">
-                <button class="movie-tab" type="button" data-blog-cat="all" aria-selected="true">Tất cả</button>
-                <button class="movie-tab" type="button" data-blog-cat="review" aria-selected="false">Bình luận phim</button>
-                <button class="movie-tab" type="button" data-blog-cat="blog" aria-selected="false">Blog điện ảnh</button>
-            </div>
-            <div id="blog-grid" class="blog-grid"></div>
         </section>
 
         <!-- MY TICKETS -->
@@ -1216,10 +1342,10 @@
             <div>
                 <h3>GÓC ĐIỆN ẢNH</h3>
                 <ul>
-                    <li><a href="/?view=blog">Bình luận phim</a></li>
-                    <li><a href="/?view=blog">Blog điện ảnh</a></li>
-                    <li><a href="/?view=promotions">Sự kiện &amp; Ưu đãi</a></li>
-                    <li><a href="/?view=account">Thành viên D-Star</a></li>
+                    <li><a href="/?view=blog&amp;tab=genres">Thể loại phim</a></li>
+                    <li><a href="/?view=blog&amp;tab=actors">Diễn viên &amp; Đạo diễn</a></li>
+                    <li><a href="/?view=blog&amp;tab=reviews">Bình luận phim</a></li>
+                    <li><a href="/?view=blog&amp;tab=articles">Blog điện ảnh</a></li>
                 </ul>
             </div>
             <div>

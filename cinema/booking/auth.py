@@ -56,6 +56,7 @@ class PasswordChange(BaseModel):
 class BookingViewer:
     account_id: UUID | None = None
     history_key: str | None = None
+    role: str | None = None
 
 
 def token_digest(value: str) -> str:
@@ -152,9 +153,16 @@ class AuthService:
         if actor_id == target_id and role != "ADMIN":
             raise HTTPException(409, "Bạn không thể tự hạ quyền Quản trị viên của chính mình.")
         with self.db.transaction() as connection:
-            updated = self.accounts.update_role(connection, target_id, role)
-            if not updated:
+            target = self.accounts.lock_account(connection, target_id)
+            if not target:
                 raise HTTPException(404, "Không tìm thấy tài khoản")
+            if (
+                target["role"] == "ADMIN"
+                and role != "ADMIN"
+                and len(self.accounts.admin_ids_for_update(connection)) <= 1
+            ):
+                raise HTTPException(409, "Không thể hạ quyền Quản trị viên cuối cùng của hệ thống.")
+            updated = self.accounts.update_role(connection, target_id, role)
             updated["tier"] = member_tier(updated["total_spent"])
             return updated
 
