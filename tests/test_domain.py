@@ -82,7 +82,7 @@ def test_calculate_discount_and_member_tiers():
     assert calculate_discount(100000, promo_fixed, 0, 0) == (25000, 0)
 
     # Cap ensures final payable amount remains >= 10,000 VND
-    assert calculate_discount(80000, promo_fixed, 100, 100) == (70000, 100)
+    assert calculate_discount(80000, promo_fixed, 100, 100) == (70000, 45)
 
     with pytest.raises(ValueError):
         calculate_discount(50000, promo_fixed, 0, 0)

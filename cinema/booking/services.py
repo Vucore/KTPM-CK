@@ -5,6 +5,7 @@ from urllib.parse import quote
 from uuid import UUID, uuid4
 
 from fastapi import HTTPException
+from psycopg.types.json import Jsonb
 
 from cinema.booking.auth import BookingViewer
 from cinema.booking.auth_repository import AccountRepository
@@ -18,7 +19,7 @@ from cinema.booking.domain import (
 )
 from cinema.booking.repositories import BookingRepository, ScreeningSeatRepository, TicketRepository
 from cinema.common import Database, ServiceClient
-from cinema.contracts import CheckoutRequest, PaymentEvent, SimulatePayment
+from cinema.contracts import BookingOptions, CheckoutRequest, PaymentEvent, SimulatePayment
 from cinema.messaging import Outbox, RejectedEvent
 
 
@@ -178,8 +179,18 @@ class PaymentClient:
         )
 
 
+PAYMENT_GRACE = timedelta(seconds=60)
+
+
 def database_time(connection):
     return connection.execute("SELECT clock_timestamp() AS now").fetchone()["now"]
+
+
+def require_owner(row, viewer):
+    if not row or (row["account_id"] and row["account_id"] != viewer.account_id):
+        raise HTTPException(404, "Không tìm thấy đơn")
+    if row["hold_owner"] and row["hold_owner"] != viewer.history_key:
+        raise HTTPException(404, "Không tìm thấy đơn")
 
 
 class HoldSeatsUseCase:
@@ -201,11 +212,74 @@ class HoldSeatsUseCase:
         self.hold_duration = timedelta(seconds=hold_seconds)
         self.accounts = accounts or AccountRepository()
 
-    def execute(self, request: CheckoutRequest, key: UUID, viewer: BookingViewer):
+    def execute(self, request: CheckoutRequest, key: UUID, viewer: BookingViewer, *, draft=False):
         labels = sorted(set(request.seats))
         if len(labels) != len(request.seats):
             raise HTTPException(422, "Danh sách ghế bị trùng")
         customer = (request.customer_name or "").strip() or None
+        promo_code, concession_requests = self._normalize(request, viewer)
+        fingerprint_parts = [request.screening_id, labels, customer]
+        if concession_requests or promo_code or request.redeem_points:
+            fingerprint_parts.extend([concession_requests, promo_code, request.redeem_points])
+        if draft:
+            fingerprint_parts.append("seat-hold")
+        data = json.dumps(fingerprint_parts, ensure_ascii=False)
+        fingerprint = hashlib.sha256(data.encode()).hexdigest()
+
+        with self.db.transaction() as connection:
+            if existing := self._existing(connection, key, fingerprint, viewer):
+                return existing
+
+        screening = self.catalog.screening(request.screening_id)
+        items = self._items(promo_code, concession_requests)
+        with self.db.transaction() as connection:
+            self.bookings.lock_key(connection, key)
+            if existing := self._existing(connection, key, fingerprint, viewer):
+                return existing
+            self.seats.sync(connection, screening)
+            rows = self.seats.lock(connection, screening["id"], labels)
+            now = database_time(connection)
+            if screening["starts_at"] <= now:
+                raise HTTPException(409, "Suất chiếu đã bắt đầu")
+            if len(rows) != len(labels):
+                raise HTTPException(422, "Có ghế không thuộc suất chiếu này")
+            conflicts = [
+                seat["label"]
+                for seat in rows
+                if seat["status"] == "SOLD" or (seat["status"] == "HELD" and seat["expires_at"] > now)
+            ]
+            if conflicts:
+                raise HTTPException(409, f"Ghế {', '.join(conflicts)} vừa được giữ hoặc bán.")
+
+            seat_amount = self.pricing.total(screening["starts_at"], screening["base_price"], rows)
+            quote = self._price(connection, seat_amount, items, request, viewer)
+            booking_id = uuid4()
+            booking = {
+                "id": booking_id,
+                "request_key": key,
+                "request_hash": fingerprint,
+                "account_id": viewer.account_id,
+                "screening_id": screening["id"],
+                "movie_title": screening["title"],
+                "starts_at": screening["starts_at"],
+                "auditorium": screening["auditorium"],
+                "cinema_name": screening.get("cinema_name", "DUT Nguyễn Du"),
+                "screening_format": screening.get("format", "2D Phụ đề"),
+                "seats": labels,
+                "customer_name": customer,
+                **quote,
+                "hold_owner": viewer.history_key if draft else None,
+                "checkout_phase": "DRAFT" if draft else "LEGACY",
+                "expires_at": min(now + self.hold_duration, screening["starts_at"]),
+            }
+            self.bookings.insert(connection, booking)
+            self.seats.hold(connection, booking)
+            self._redeem(connection, viewer, booking_id, quote["points_redeemed"], screening["title"])
+            if viewer.history_key:
+                self.bookings.save(connection, viewer.history_key, booking["id"])
+            return self.bookings.detail(connection, booking["id"], viewer)
+
+    def _normalize(self, request, viewer):
         promo_code = (request.promo_code or "").strip().upper() or None
         concession_requests = sorted(
             [(item.id, item.quantity) for item in request.concessions],
@@ -216,17 +290,9 @@ class HoldSeatsUseCase:
         if request.redeem_points > 0 and not viewer.account_id:
             raise HTTPException(401, "Vui lòng đăng nhập để sử dụng điểm D-Star.")
 
-        fingerprint_parts = [request.screening_id, labels, customer]
-        if concession_requests or promo_code or request.redeem_points:
-            fingerprint_parts.extend([concession_requests, promo_code, request.redeem_points])
-        data = json.dumps(fingerprint_parts, ensure_ascii=False)
-        fingerprint = hashlib.sha256(data.encode()).hexdigest()
+        return promo_code, concession_requests
 
-        with self.db.transaction() as connection:
-            if existing := self._existing(connection, key, fingerprint, viewer):
-                return existing
-
-        screening = self.catalog.screening(request.screening_id)
+    def _items(self, promo_code, concession_requests):
         options = (
             self.catalog.checkout_options()
             if (concession_requests or promo_code)
@@ -261,80 +327,94 @@ class HoldSeatsUseCase:
             if not promo:
                 raise HTTPException(422, "Mã khuyến mãi không tồn tại hoặc đã hết hạn.")
 
-        with self.db.transaction() as connection:
-            self.bookings.lock_key(connection, key)
-            if existing := self._existing(connection, key, fingerprint, viewer):
-                return existing
-            self.seats.sync(connection, screening)
-            rows = self.seats.lock(connection, screening["id"], labels)
-            now = database_time(connection)
-            if screening["starts_at"] <= now:
-                raise HTTPException(409, "Suất chiếu đã bắt đầu")
-            if len(rows) != len(labels):
-                raise HTTPException(422, "Có ghế không thuộc suất chiếu này")
-            if any(
-                seat["status"] == "SOLD" or (seat["status"] == "HELD" and seat["expires_at"] > now)
-                for seat in rows
+        return concession_items, concessions_amount, promo, promo_code
+
+    def _price(self, connection, seat_amount, items, request, viewer):
+        concession_items, concessions_amount, promo, promo_code = items
+        subtotal = seat_amount + concessions_amount
+        available_points = 0
+        if viewer.account_id and request.redeem_points > 0:
+            account = self.accounts.lock_account(connection, viewer.account_id)
+            available_points = account["points"] if account else 0
+
+        try:
+            discount_amount, points_used = calculate_discount(
+                subtotal, promo, request.redeem_points, available_points
+            )
+        except ValueError as error:
+            raise HTTPException(422, str(error)) from error
+
+        final_amount = subtotal - discount_amount
+        return {
+            "concessions": concession_items,
+            "concessions_amount": concessions_amount,
+            "discount_amount": discount_amount,
+            "promo_code": promo_code,
+            "points_redeemed": points_used,
+            "amount": final_amount,
+        }
+
+    def _redeem(self, connection, viewer, booking_id, points_used, title):
+        if viewer.account_id and points_used > 0:
+            self.accounts.record_point_transaction(
+                connection,
+                viewer.account_id,
+                booking_id,
+                "REDEEM",
+                -points_used,
+                f"Đổi {points_used} Star cho đơn {title}",
+            )
+
+    def options(self, booking_id, options: BookingOptions, viewer, *, commit):
+        promo_code, concessions = self._normalize(options, viewer)
+        signature = hashlib.sha256(
+            json.dumps([concessions, promo_code, options.redeem_points]).encode()
+        ).hexdigest()
+
+        def check(connection):
+            row = self.bookings.lock(connection, booking_id)
+            require_owner(row, viewer)
+            if row["status"] != "HELD" or row["expires_at"] <= database_time(connection):
+                raise HTTPException(409, "Đơn đã hết thời hạn giữ ghế.")
+            if row["checkout_phase"] != "DRAFT" and not (
+                commit and row["checkout_phase"] == "READY" and row["options_hash"] == signature
             ):
-                raise HTTPException(409, "Một hoặc nhiều ghế vừa được giữ hoặc bán")
+                raise HTTPException(409, "Đơn đã chốt giá. Hãy mở lại đơn để tiếp tục.")
+            return row
 
-            seat_amount = self.pricing.total(screening["starts_at"], screening["base_price"], rows)
-            subtotal = seat_amount + concessions_amount
-            available_points = 0
-            if viewer.account_id and request.redeem_points > 0:
-                account = self.accounts.lock_account(connection, viewer.account_id)
-                available_points = account["points"] if account else 0
-
-            try:
-                discount_amount, points_used = calculate_discount(
-                    subtotal, promo, request.redeem_points, available_points
-                )
-            except ValueError as error:
-                raise HTTPException(422, str(error)) from error
-
-            final_amount = subtotal - discount_amount
-            booking_id = uuid4()
-            booking = {
-                "id": booking_id,
-                "request_key": key,
-                "request_hash": fingerprint,
-                "account_id": viewer.account_id,
-                "screening_id": screening["id"],
-                "movie_title": screening["title"],
-                "starts_at": screening["starts_at"],
-                "auditorium": screening["auditorium"],
-                "cinema_name": screening.get("cinema_name", "DUT Nguyễn Du"),
-                "screening_format": screening.get("format", "2D Phụ đề"),
-                "seats": labels,
-                "customer_name": customer,
-                "concessions": concession_items,
-                "concessions_amount": concessions_amount,
-                "discount_amount": discount_amount,
-                "promo_code": promo_code,
-                "points_redeemed": points_used,
-                "amount": final_amount,
-                "expires_at": min(now + self.hold_duration, screening["starts_at"]),
-            }
-            self.bookings.insert(connection, booking)
-            self.seats.hold(connection, booking)
-            if viewer.account_id and points_used > 0:
-                self.accounts.record_point_transaction(
-                    connection,
-                    viewer.account_id,
-                    booking_id,
-                    "REDEEM",
-                    -points_used,
-                    f"Đổi {points_used} Star cho đơn {screening['title']}",
-                )
-            if viewer.history_key:
-                self.bookings.save(connection, viewer.history_key, booking["id"])
-            return self.bookings.detail(connection, booking["id"], viewer)
+        with self.db.transaction() as connection:
+            row = check(connection)
+            if row["checkout_phase"] == "READY":
+                return self.bookings.detail(connection, booking_id, viewer)
+        items = self._items(promo_code, concessions)
+        with self.db.transaction() as connection:
+            row = check(connection)
+            if row["checkout_phase"] == "READY":
+                return self.bookings.detail(connection, booking_id, viewer)
+            quote = self._price(connection, row["amount"], items, options, viewer)
+            if not commit:
+                return quote
+            self._redeem(connection, viewer, booking_id, quote["points_redeemed"], row["movie_title"])
+            connection.execute(
+                """
+                UPDATE cinema_booking.bookings SET checkout_phase = 'READY', options_hash = %(signature)s,
+                    amount = %(amount)s, concessions = %(concessions)s, concessions_amount = %(concessions_amount)s,
+                    discount_amount = %(discount_amount)s, promo_code = %(promo_code)s,
+                    points_redeemed = %(points_redeemed)s WHERE id = %(id)s
+            """,
+                {
+                    **quote,
+                    "id": booking_id,
+                    "signature": signature,
+                    "concessions": Jsonb(quote["concessions"]),
+                },
+            )
+            return self.bookings.detail(connection, booking_id, viewer)
 
     def _existing(self, connection, key, fingerprint, viewer):
         existing = self.bookings.by_key(connection, key)
         if existing:
-            if existing["account_id"] and existing["account_id"] != viewer.account_id:
-                raise HTTPException(404, "Không tìm thấy đơn")
+            require_owner(existing, viewer)
             if existing["request_hash"] != fingerprint:
                 raise HTTPException(409, "Idempotency-Key đã được dùng cho một yêu cầu khác")
             booking = self.bookings.detail(connection, existing["id"], viewer)
@@ -419,14 +499,15 @@ class BookingService:
             self.bookings.forget(connection, viewer.history_key, booking_id)
 
     def cancel(self, booking_id: UUID, viewer: BookingViewer, payment_client: PaymentClient):
-        self.require_access(booking_id, viewer)
-        payment = payment_client.find(booking_id)
-        if payment["status"] not in {"PENDING", "DECLINED"}:
-            raise HTTPException(409, "Không thể hủy đơn khi giao dịch thanh toán đang xử lý hoặc đã hoàn tất.")
         with self.db.transaction() as connection:
             booking = self.bookings.lock(connection, booking_id)
-            if not booking or (booking["account_id"] and booking["account_id"] != viewer.account_id):
-                raise HTTPException(404, "Không tìm thấy đơn")
+            require_owner(booking, viewer)
+            if booking["checkout_phase"] == "LEGACY" or booking["attempt_key"]:
+                payment = payment_client.find(booking_id)
+                if payment["status"] not in {"PENDING", "DECLINED"} or (
+                    booking["attempt_key"] and payment["last_attempt"] != str(booking["attempt_key"])
+                ):
+                    raise HTTPException(409, "Giao dịch thanh toán đang xử lý hoặc đã hoàn tất.")
             if booking["status"] != "HELD":
                 raise HTTPException(409, "Đơn này không còn ở trạng thái giữ ghế.")
             self.seats.lock(connection, booking["screening_id"], booking["seats"])
@@ -434,6 +515,64 @@ class BookingService:
             self.bookings.cancel(connection, booking["id"])
             self._restore_points(connection, booking)
             return self.bookings.detail(connection, booking["id"], viewer)
+
+    def payment_session(self, booking_id, viewer, payment_client):
+        with self.db.transaction() as connection:
+            row = self.bookings.lock(connection, booking_id)
+            require_owner(row, viewer)
+            if (
+                row["checkout_phase"] != "READY"
+                or row["status"] != "HELD"
+                or row["expires_at"] <= database_time(connection)
+            ):
+                raise HTTPException(409, "Đơn chưa sẵn sàng để thanh toán.")
+            amount = row["amount"]
+        return payment_client.create(booking_id, amount)
+
+    def begin_payment(self, booking_id, key, request, viewer, payment_client):
+        with self.db.transaction() as connection:
+            row = self.bookings.lock(connection, booking_id)
+            require_owner(row, viewer)
+            if row["checkout_phase"] == "LEGACY":
+                return payment_client.simulate(booking_id, key, request)
+            seats = self.seats.lock(connection, row["screening_id"], row["seats"])
+            now = database_time(connection)
+            if row["checkout_phase"] != "READY":
+                raise HTTPException(409, "Hãy chốt giá trước khi thanh toán.")
+            if (
+                row["status"] != "HELD"
+                or row["expires_at"] <= now
+                or any(seat["booking_id"] != booking_id for seat in seats)
+            ):
+                raise HTTPException(409, "Đơn không còn giữ ghế.")
+            pay_by = row["pay_by"] or row["expires_at"]
+            if row["attempt_key"] != key and now >= pay_by:
+                raise HTTPException(409, "Đã hết thời gian bắt đầu thanh toán.")
+            # Reserve the confirmation window once, even when the client retries.
+            if row["attempt_key"] != key:
+                if row["attempt_key"]:
+                    previous = payment_client.find(booking_id)
+                    if previous["status"] != "DECLINED" or previous["last_attempt"] != str(
+                        row["attempt_key"]
+                    ):
+                        raise HTTPException(409, "Đang chờ kết quả lần thanh toán trước.")
+                deadline = min(row["starts_at"], pay_by + PAYMENT_GRACE)
+                connection.execute(
+                    """
+                    UPDATE cinema_booking.bookings SET attempt_key = %s, pay_by = %s, expires_at = %s
+                    WHERE id = %s
+                """,
+                    (key, pay_by, deadline, booking_id),
+                )
+                connection.execute(
+                    """
+                    UPDATE cinema_booking.screening_seats SET expires_at = %s
+                    WHERE booking_id = %s AND status = 'HELD'
+                """,
+                    (deadline, booking_id),
+                )
+        # A lost response can be retried with the same key against the same session.
+        return payment_client.simulate(booking_id, key, request)
 
     def ticket(self, code: UUID):
         with self.db.transaction() as connection:
@@ -468,6 +607,28 @@ class BookingService:
                     409,
                     "Không thể xóa suất chiếu đang giữ ghế hoặc đã bán vé.",
                 )
+
+    def reconcile_payments(self, payment_client):
+        # Check near-deadline payments even when the browser is closed or the event is delayed.
+        with self.db.transaction() as connection:
+            pending = connection.execute("""
+                SELECT id FROM cinema_booking.bookings WHERE status = 'HELD' AND attempt_key IS NOT NULL
+                    AND pay_by <= statement_timestamp() AND expires_at > statement_timestamp()
+            """).fetchall()
+        for row in pending:
+            try:
+                payment = payment_client.find(row["id"])
+            except HTTPException:
+                continue
+            if payment["status"] == "SUCCEEDED":
+                self.payment_succeeded(
+                    PaymentEvent(
+                        booking_id=row["id"],
+                        payment_id=payment["id"],
+                        amount=payment["amount"],
+                    )
+                )
+        return False
 
     def expire_one(self):
         with self.db.transaction() as connection:

@@ -15,9 +15,11 @@ class PaymentRepository:
     def find(self, connection, booking_id, *, lock=False):
         return connection.execute(
             """
-            SELECT * FROM cinema_payment.payments WHERE booking_id = %s
+            SELECT p.*, (SELECT a.request_key FROM cinema_payment.attempts a
+                         WHERE a.payment_id = p.id ORDER BY a.finished_at DESC NULLS FIRST LIMIT 1) AS last_attempt
+            FROM cinema_payment.payments p WHERE booking_id = %s
         """
-            + (" FOR UPDATE" if lock else ""),
+            + (" FOR UPDATE OF p" if lock else ""),
             (booking_id,),
         ).fetchone()
 

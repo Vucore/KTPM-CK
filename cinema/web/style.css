@@ -636,11 +636,23 @@ input::placeholder { color: var(--muted); }
 .blog-meta { font-size: .76rem; color: var(--muted); display: flex; justify-content: space-between; gap: 8px; }
 
 /* FLOW & SEATING */
-.flow { max-width: 1120px; padding: 27px 0 64px; }
-.steps { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); max-width: 780px; list-style: none; margin-inline: auto; color: var(--muted); }
-.steps li { padding: 8px 6px 11px; border-bottom: 2px solid var(--line); font-size: .82rem; text-align: center; }
-.steps li:has(~ [aria-current="step"]) { border-color: #91aec9; color: var(--blue); }
-.steps [aria-current="step"] { border-color: var(--blue); color: var(--blue); font-weight: 700; }
+body:has(#booking-flow:not([hidden])) { background: #faf9f7; }
+.flow { max-width: 1200px; padding: 0 0 64px; }
+.steps {
+    display: flex; justify-content: center; align-items: stretch; gap: clamp(8px, 1.6vw, 24px);
+    list-style: none; padding: 0 4px; margin-bottom: 40px; background: white;
+    box-shadow: 0 0 0 100vmax white; clip-path: inset(0 -100vmax);
+}
+.steps li {
+    position: relative; display: grid; align-items: center; text-align: center;
+    min-height: 72px; color: #68717a; font-size: clamp(.7rem, 1.4vw, .95rem);
+}
+.steps a { color: inherit; text-decoration: none; }
+.steps [aria-current="step"], .steps a:hover { color: var(--blue); }
+.steps [aria-current="step"]::after {
+    content: ""; position: absolute; bottom: 0; left: 50%; transform: translateX(-50%);
+    width: 40px; height: 2px; background: var(--blue);
+}
 .flow-heading { margin: 24px 0 22px; }
 .flow-heading h1 { font: 700 clamp(2.5rem, 5.2vw, 3.8rem)/1.06 var(--display); }
 #booking-flow .flow-heading h1 { color: var(--ink); font: 700 clamp(1.5rem, 3.2vw, 2.1rem)/1.18 var(--body); }
@@ -648,7 +660,7 @@ input::placeholder { color: var(--muted); }
 .back { display: inline-flex; align-items: center; gap: 9px; min-height: 40px; border: 0; padding: 0; background: transparent; color: var(--accent); text-decoration: none; font-size: .82rem; font-weight: 700; margin-bottom: 4px; }
 .back:hover:not(:disabled) { text-decoration: underline; }
 .back:disabled { color: var(--muted); }
-.flow-grid { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr); gap: 24px; align-items: start; }
+.flow-grid { display: grid; grid-template-columns: minmax(0, 2.12fr) minmax(0, 1fr); gap: clamp(20px, 3.5vw, 48px); align-items: start; }
 .payment-grid { grid-template-areas: "payment summary"; }
 .payment-grid:has(#simulate[hidden]) { grid-template-areas: "summary"; grid-template-columns: minmax(0, 620px); }
 #simulate { grid-area: payment; }
@@ -657,7 +669,21 @@ input::placeholder { color: var(--muted); }
 .panel { display: grid; gap: 15px; background: var(--surface); border: 1px solid var(--line); }
 .panel h2 { font: 700 1.4rem/1.2 var(--body); }
 #booking-flow .panel h2, .map-heading h2 { font: 700 1.08rem/1.35 var(--body); }
-.booking-summary { box-shadow: 0 12px 26px #182c4411; }
+#booking-flow .panel, .seat-panel {
+    border-radius: 4px; background: white; box-shadow: 0 8px 28px #30281e14;
+}
+#booking-flow .booking-summary { border-top: 7px solid #f38323; }
+.booking-summary .booking-film { border-bottom: 1px dashed var(--line); }
+.checkout-actions { display: grid; grid-template-columns: 1fr 1.35fr; gap: 10px; }
+.checkout-actions .button { padding-inline: 8px; }
+.checkout-actions .secondary { color: #954400; border-color: #d88739; }
+#skip-combo { justify-self: center; min-height: 32px; border: 0; text-decoration: underline; }
+#hold-timer { margin: 0; }
+#booking-flow .amount { color: #ab4b0e; }
+@media (min-width: 961px) {
+    .booking-summary { position: sticky; top: 96px; }
+    .booking-film .booking-poster { flex-basis: 78px; }
+}
 .booking-film { display: flex; align-items: center; gap: 14px; padding-bottom: 14px; border-bottom: 1px solid var(--line); }
 .booking-film .muted { margin-top: 4px; }
 .cinema-line { font-size: .82rem; font-weight: 700; color: var(--blue); margin-top: 4px; }
@@ -699,7 +725,7 @@ input::placeholder { color: var(--muted); }
 .map-retry { border-color: #839aab; color: var(--blue); background: var(--surface); margin-block: 4px; }
 
 /* CONCESSIONS & PROMO IN CHECKOUT */
-.concessions-left { display: grid; gap: 18px; }
+.concessions-left { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; gap: 18px; }
 .concession-list { display: grid; gap: 12px; }
 .concession-item {
     display: flex;
@@ -722,7 +748,7 @@ input::placeholder { color: var(--muted); }
 .qty-value { min-width: 22px; text-align: center; font-weight: 700; font-variant-numeric: tabular-nums; }
 
 .promo-input-row { display: flex; gap: 8px; }
-.promo-input-row input { flex: 1; }
+.promo-input-row input { flex: 1; width: 0; min-width: 0; }
 .promo-input-row .button { min-height: 44px; white-space: nowrap; }
 .promo-chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .promo-chip {
@@ -950,6 +976,26 @@ textarea {
 .credits ul { margin: 22px 0; padding-left: 24px; }
 .credits li { margin-bottom: 9px; }
 
+.seat.unavailable.held, .legend i.held {
+    background: repeating-linear-gradient(-45deg, #fff8eb 0 4px, #f6e5c9 4px 6px);
+    color: #795219; border-color: #b79156; text-decoration: none;
+}
+#booking-flow .seat-panel { background: white; }
+.concession-item.in-cart { background: #fffbf6; border-color: #eab17b; }
+.qty-btn:disabled { opacity: .42; }
+.demo-sim-box summary { cursor: pointer; color: var(--muted); font-size: .82rem; }
+.demo-sim-box[open] summary { margin-bottom: 12px; }
+body:has(#booking-flow:not([hidden])) { overflow-x: clip; }
+@media (max-width: 600px) {
+    .steps { margin-bottom: 20px; gap: 0; justify-content: space-between; }
+    .steps li { min-height: 56px; max-width: 22%; line-height: 1.35; }
+    .concession-info { min-width: 0; }
+    .concession-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; padding: 10px; gap: 7px; }
+    .qty-control { gap: 3px; }
+    .concessions-left .panel { padding: 14px; }
+    #booking-flow .panel { min-width: 0; grid-template-columns: minmax(0, 1fr); }
+    .checkout-actions .button { white-space: normal; }
+}
 /* RESPONSIVE */
 @media (max-width: 960px) {
     .primary-nav { display: none; }
@@ -979,7 +1025,8 @@ textarea {
     .ticket-code img { width: 106px; height: 106px; }
 }
 @media (max-width: 480px) {
-    .header-inner { min-height: 62px; }
+    .header-inner { min-height: 62px; gap: 8px; }
+    .site-nav #ticket-history-link, .site-nav #admin-nav-link { display: none; }
     .header-actions { display: none; }
     .user-meta { display: none; }
     .site-nav { gap: 10px; }

@@ -38,6 +38,7 @@ from cinema.booking.domain import (
     log_confirmation,
 )
 from cinema.booking.repositories import BookingRepository, ScreeningSeatRepository, TicketRepository
+from cinema.booking.seat_updates import SeatChangeListener
 from cinema.booking.services import (
     BookingService,
     CatalogClient,
@@ -55,7 +56,9 @@ from cinema.contracts import (
     AdminPromotionInput,
     AdminRoleUpdate,
     AdminScreeningInput,
+    BookingOptions,
     CheckoutRequest,
+    SeatHold,
     SimulatePayment,
 )
 from cinema.messaging import Background, Outbox, RabbitWorker
@@ -101,6 +104,7 @@ def create_app(settings: Settings | None = None, downstream: httpx.BaseTransport
     accounts_repo = AccountRepository()
     auth = AuthService(db, accounts_repo, PasswordHasher(time_cost=2, memory_cost=19456, parallelism=1))
     bookings, seats, tickets = BookingRepository(), ScreeningSeatRepository(), TicketRepository()
+    seat_updates = SeatMapObserver()
     hold = HoldSeatsUseCase(
         db,
         bookings,
@@ -111,10 +115,9 @@ def create_app(settings: Settings | None = None, downstream: httpx.BaseTransport
         accounts_repo,
     )
     checkout = CheckoutFacade(hold, payment)
-    seat_updates = SeatMapObserver()
     outbox = Outbox(db, "cinema_booking")
     service = BookingService(
-        db, bookings, seats, tickets, outbox, BookingObservers([seat_updates, log_confirmation]), accounts_repo
+        db, bookings, seats, tickets, outbox, BookingObservers([log_confirmation]), accounts_repo
     )
     worker = RabbitWorker(settings.rabbitmq_url, "payment.succeeded", outbox, service.payment_succeeded)
 
@@ -124,7 +127,9 @@ def create_app(settings: Settings | None = None, downstream: httpx.BaseTransport
         try:
             with (
                 worker.background(),
+                SeatChangeListener(settings.database_url, seat_updates).background(),
                 Background("expire-bookings", service.expire_one),
+                Background("check-payments", lambda: service.reconcile_payments(payment), idle_delay=3),
                 Background("expire-auth", auth.expire, idle_delay=3600),
             ):
                 yield
@@ -252,6 +257,19 @@ def create_app(settings: Settings | None = None, downstream: httpx.BaseTransport
             stream(), media_type="text/event-stream", headers={"Cache-Control": "no-cache"}
         )
 
+    @app.post("/api/holds", status_code=201, dependencies=same_origin)
+    def reserve_seats(payload: SeatHold, key: RequestKey, current: Viewer):
+        return hold.execute(CheckoutRequest(**payload.model_dump()), key, current, draft=True)
+
+    @app.post("/api/bookings/{booking_id}/quote", dependencies=same_origin)
+    def preview_options(booking_id: UUID, payload: BookingOptions, current: Viewer):
+        return hold.options(booking_id, payload, current, commit=False)
+
+    @app.post("/api/bookings/{booking_id}/prepare", dependencies=same_origin)
+    def finalize_options(booking_id: UUID, payload: BookingOptions, current: Viewer):
+        booking = hold.options(booking_id, payload, current, commit=True)
+        return {"booking": booking, "payment": payment.create(booking_id, booking["amount"])}
+
     @app.post("/api/checkout", status_code=201, dependencies=same_origin)
     def start_checkout(payload: CheckoutRequest, key: RequestKey, current: Viewer):
         return checkout.start(payload, key, current)
@@ -276,6 +294,10 @@ def create_app(settings: Settings | None = None, downstream: httpx.BaseTransport
     def cancel_booking(booking_id: UUID, current: Viewer):
         return service.cancel(booking_id, current, payment)
 
+    @app.post("/api/bookings/{booking_id}/payment", dependencies=same_origin)
+    def resume_payment(booking_id: UUID, current: Viewer):
+        return service.payment_session(booking_id, current, payment)
+
     @app.get("/api/bookings/{booking_id}/payment")
     def payment_status(booking_id: UUID, current: Viewer):
         service.require_access(booking_id, current)
@@ -283,8 +305,7 @@ def create_app(settings: Settings | None = None, downstream: httpx.BaseTransport
 
     @app.post("/api/bookings/{booking_id}/payment/simulate", status_code=202, dependencies=same_origin)
     def simulate_payment(booking_id: UUID, request: SimulatePayment, key: RequestKey, current: Viewer):
-        service.require_access(booking_id, current)
-        return payment.simulate(booking_id, key, request)
+        return service.begin_payment(booking_id, key, request, current, payment)
 
     @app.get("/api/tickets/{code}/qr.svg")
     def ticket_qr(code: UUID):

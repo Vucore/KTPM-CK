@@ -13,13 +13,20 @@ class ConcessionOrderItem(BaseModel):
     quantity: int = Field(ge=1, le=20)
 
 
-class CheckoutRequest(BaseModel):
+class SeatHold(BaseModel):
     screening_id: str = Field(min_length=1, max_length=100)
     seats: list[SeatLabel] = Field(min_length=1, max_length=8)
     customer_name: str | None = Field(default=None, max_length=80)
+
+
+class BookingOptions(BaseModel):
     concessions: list[ConcessionOrderItem] = Field(default_factory=list, max_length=20)
     promo_code: str | None = Field(default=None, max_length=32)
     redeem_points: int = Field(default=0, ge=0, le=5000)
+
+
+class CheckoutRequest(SeatHold, BookingOptions):
+    pass
 
 
 class CreatePayment(BaseModel):

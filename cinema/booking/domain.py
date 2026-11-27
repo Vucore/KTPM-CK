@@ -82,7 +82,8 @@ def calculate_discount(
     if redeem_points > 0:
         if redeem_points > available_points:
             raise ValueError("Số điểm D-Star hiện tại không đủ để quy đổi.")
-        points_used = redeem_points
+        useful_points = max(0, subtotal - MIN_PAYABLE_AMOUNT - discount) // POINT_VALUE_VND
+        points_used = min(redeem_points, useful_points)
         discount += points_used * POINT_VALUE_VND
 
     max_discount = max(0, subtotal - MIN_PAYABLE_AMOUNT)
@@ -164,8 +165,11 @@ class SeatMapObserver:
         self.lock = Lock()
 
     def __call__(self, event: BookingConfirmed):
+        self.changed(event.screening_id)
+
+    def changed(self, screening_id: str):
         with self.lock:
-            self.versions[event.screening_id] = self.versions.get(event.screening_id, 0) + 1
+            self.versions[screening_id] = self.versions.get(screening_id, 0) + 1
 
     def revision(self, screening_id: str):
         with self.lock:

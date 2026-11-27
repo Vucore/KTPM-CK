@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#ffffff">
     <title>DUT Cinema · Hệ thống rạp chiếu phim &amp; đặt vé trực tuyến</title>
-    <link rel="stylesheet" href="/assets/style.css?v=6">
-    <script type="module" src="/assets/app.js?v=6"></script>
+    <link rel="stylesheet" href="/assets/style.css?v=checkout-6">
+    <script type="module" src="/assets/app.js?v=7"></script>
 </head>
 <body>
     <a class="skip" href="#main">Đến nội dung chính</a>
@@ -106,6 +106,7 @@
             <a class="nav-link" href="/?view=promotions">Sự Kiện &amp; Ưu Đãi</a>
             <a class="nav-link" href="/?view=cinemas">Rạp &amp; Giá Vé</a>
             <a id="mobile-admin-link" class="nav-link" href="/?view=admin" hidden>Quản trị hệ thống</a>
+            <a class="nav-link" href="/?view=tickets">Vé của tôi</a>
             <a class="nav-link" href="/?view=account">Tài khoản thành viên</a>
             <button id="mobile-logout-btn" class="nav-link mobile-logout-btn" type="button" hidden>Đăng xuất</button>
         </div>
@@ -469,17 +470,17 @@
         <!-- BOOKING FLOW (4 STEPS) -->
         <div id="booking-flow" class="wrap flow" hidden>
             <ol class="steps" role="list" aria-label="Tiến độ đặt vé">
-                <li id="step-seats">1. Chọn ghế</li>
-                <li id="step-concessions">2. Bắp nước &amp; Ưu đãi</li>
-                <li id="step-payment">3. Thanh toán</li>
-                <li id="step-tickets">4. Nhận vé</li>
+                <li><a href="/#lich-chieu">Phim / Rạp / Suất</a></li>
+                <li id="step-seats">Chọn ghế</li>
+                <li id="step-concessions">Chọn thức ăn</li>
+                <li id="step-payment">Thanh toán</li>
+                <li id="step-tickets">Nhận vé</li>
             </ol>
             <p id="notice" class="notice" role="status" hidden></p>
 
             <!-- STEP 1: SEATING -->
             <section id="seating" hidden>
-                <div class="flow-heading">
-                    <button class="back" id="back" type="button"><span class="arrow left" aria-hidden="true"></span> Tất cả suất chiếu</button>
+                <div class="visually-hidden">
                     <h1 id="seating-heading" tabindex="-1">Chọn ghế</h1>
                 </div>
                 <div class="flow-grid">
@@ -498,7 +499,8 @@
                             <li><i class="premium" aria-hidden="true"></i> Ghế VIP</li>
                             <li><i class="couple" aria-hidden="true"></i> Ghế đôi Sweetbox</li>
                             <li><i class="selected" aria-hidden="true"></i> Đang chọn</li>
-                            <li><i class="unavailable" aria-hidden="true"></i> Đã bán / Đang giữ</li>
+                            <li><i class="unavailable" aria-hidden="true"></i> Đã bán</li>
+                            <li><i class="held" aria-hidden="true"></i> Đang giữ</li>
                         </ul>
                     </div>
 
@@ -524,19 +526,17 @@
                             <input id="customer" maxlength="80" autocomplete="name" placeholder="Nhập họ và tên">
                         </div>
                         <p class="panel-note">Bạn có thể chọn tối đa 8 ghế mỗi đơn.</p>
+                        <div class="checkout-actions"><button class="button secondary" id="back" type="button">Quay lại</button>
                         <button class="button primary panel-action" id="to-concessions" type="submit" disabled>
-                            Tiếp tục: Bắp nước &amp; Ưu đãi <span class="arrow" aria-hidden="true"></span>
-                        </button>
+                            Giữ ghế và tiếp tục
+                        </button></div>
                     </form>
                 </div>
             </section>
 
             <!-- STEP 2: CONCESSIONS & PROMOTIONS -->
             <section id="concessions-step" hidden>
-                <div class="flow-heading">
-                    <button class="back" id="back-to-seats" type="button"><span class="arrow left" aria-hidden="true"></span> Chọn lại ghế</button>
-                    <h1 id="concessions-heading" tabindex="-1">Chọn bắp nước &amp; Ưu đãi</h1>
-                </div>
+                <h1 id="concessions-heading" class="visually-hidden" tabindex="-1">Chọn thức ăn</h1>
                 <div class="flow-grid">
                     <div class="concessions-left">
                         <div class="panel">
@@ -580,7 +580,13 @@
                             <div id="summary-discount-row" hidden><dt>Ưu đãi / Điểm</dt><dd id="summary-discount-price" class="discount-val">-0 ₫</dd></div>
                             <div class="total-row"><dt>Tổng thanh toán</dt><dd id="summary-grand-total" class="amount">0 ₫</dd></div>
                         </dl>
-                        <button class="button primary panel-action" id="hold" type="button">Giữ ghế &amp; Thanh toán</button>
+                        <button class="button secondary" id="retry-quote" type="button" hidden>Tính lại giá</button>
+                        <p id="hold-timer" class="timer"></p>
+                        <div class="checkout-actions">
+                            <button class="button secondary" id="back-to-seats" type="button">Nhả ghế và chọn lại</button>
+                            <button class="button primary" id="hold" type="button">Kiểm tra đơn</button>
+                        </div>
+                        <button class="button secondary" id="skip-combo" type="button">Bỏ qua bắp nước</button>
                     </aside>
                 </div>
             </section>
@@ -605,6 +611,8 @@
                         </div>
                         <dl class="order-facts">
                             <div><dt>Ghế</dt><dd id="order-seats"></dd></div>
+                            <div><dt>Tiền vé</dt><dd id="order-seat-price"></dd></div>
+                            <div id="order-points-row" hidden><dt>Điểm Star sử dụng</dt><dd id="order-points"></dd></div>
                             <div id="order-concessions-row" hidden><dt>Bắp nước</dt><dd id="order-concessions"></dd></div>
                             <div id="order-discount-row" hidden><dt>Giảm giá</dt><dd id="order-discount" class="discount-val"></dd></div>
                             <div class="total-row"><dt>Tổng tiền</dt><dd id="amount" class="amount"></dd></div>
@@ -622,8 +630,8 @@
                             <label class="pay-method"><input type="radio" name="pay-method" value="zalopay"> <span>ZaloPay</span></label>
                             <label class="pay-method"><input type="radio" name="pay-method" value="card"> <span>Thẻ ATM / Visa</span></label>
                         </div>
-                        <div class="demo-sim-box">
-                            <p class="panel-note">Mô phỏng phản hồi cổng thanh toán cho kiểm thử nghiệp vụ:</p>
+                        <details class="demo-sim-box">
+                            <summary>Thanh toán giả lập · Tùy chỉnh kết quả</summary>
                             <div class="sim-fields">
                                 <div class="field">
                                     <label for="outcome">Kết quả giao dịch</label>
@@ -637,7 +645,7 @@
                                     <input type="number" id="delay" min="0" max="120" value="0" required>
                                 </div>
                             </div>
-                        </div>
+                        </details>
                         <button class="button primary panel-action" id="pay" type="submit">Thanh toán ngay</button>
                     </form>
                 </div>

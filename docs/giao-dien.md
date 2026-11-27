@@ -4,7 +4,7 @@
 
 1. Trong **Mua vé nhanh**, chọn phim, phòng, ngày và suất rồi bấm **Chọn ghế**. Nếu phim chỉ có một phòng, giao diện chọn phòng đó. Bạn cũng có thể bấm thẳng giờ chiếu dưới poster.
 2. Chọn tối đa 8 ghế và nhập tên trên vé nếu muốn. Khung bên phải trên laptop hiển thị phim, suất và danh sách ghế đã chọn. Sơ đồ cập nhật qua SSE và tải lại định kỳ. Nếu ghế vừa bị giữ hoặc bán, giao diện cập nhật trạng thái để khách chọn lại.
-3. Kiểm tra tổng tiền và thời hạn giữ ghế trong phần tóm tắt đơn. Trong **Thanh toán giả lập**, chọn kết quả và độ trễ để chạy giao dịch. Nếu kết quả bị từ chối, khách có thể thử lại khi thời hạn còn hiệu lực.
+3. Bấm **Giữ ghế và tiếp tục**, chọn combo hoặc bỏ qua bắp nước. Kiểm tra tổng tiền và thời hạn giữ ghế trong phần tóm tắt đơn. Trong **Thanh toán giả lập**, chọn kết quả và độ trễ để chạy giao dịch. Nếu kết quả bị từ chối, khách có thể thử lại khi thời hạn còn hiệu lực.
 4. Khi Booking xác nhận đơn, mỗi ghế có một vé và một QR riêng. Mở lại đường dẫn `/?booking=<mã đơn>` để xem đơn hoặc vé đã cấp.
 
 ## Xem lại vé
@@ -45,3 +45,11 @@ Một QR đại diện cho một vé. Tính năng hiện tại dùng để tra c
 
 - Galaxy Cinema dùng banner ngang, thanh mua vé bốn bước và bốn poster mỗi hàng. [Trang tham chiếu](https://www.galaxycine.vn/), [ảnh Galaxy Cinema](anh-doi-chieu/01-galaxy.jpg).
 - Chọn Suất áp dụng cách tổ chức đó cho danh mục demo và giữ tên thương hiệu, hình ảnh phim và bộ lọc riêng. [Ảnh trước](anh-doi-chieu/02-chon-suat-truoc.jpg), [ảnh sau](anh-doi-chieu/03-chon-suat-sau.jpg).
+
+## Giữ ghế và chốt đơn
+
+Bấm **Giữ ghế và tiếp tục** để giữ cả nhóm ghế trước khi chọn combo. Trình duyệt mở đường dẫn của đơn và hiển thị thời gian còn lại theo máy chủ. **Nhả ghế và chọn lại** trả ghế về sơ đồ. Tại bước combo, **Kiểm tra đơn** chốt giá; **Bỏ qua bắp nước** chốt đơn không có combo. Trang thanh toán hiển thị số tiền đã chốt trước khi khách gửi giao dịch giả lập.
+
+Booking gửi thay đổi giữ, nhả và bán ghế qua PostgreSQL LISTEN/NOTIFY sau commit. Mỗi tiến trình Booking dùng một kết nối hỗ trợ session để chuyển thông báo sang SSE. Trình duyệt vẫn tải lại sơ đồ định kỳ khi mất tín hiệu. Đơn theo luồng mới có tối đa 60 giây chờ phản hồi sau hạn trả tiền nếu đã bắt đầu thanh toán đúng hạn, giới hạn bởi giờ chiếu. Trong khoảng chờ, Booking kiểm tra lại các giao dịch đã thành công ở Payment.
+
+Khung năm bước và thẻ tóm tắt đơn bên phải tham chiếu [lịch chiếu Galaxy Cinema](https://www.galaxycine.vn/lich-chieu/). Xem [ảnh Galaxy](anh-doi-chieu/04-galaxy-lich-chieu.jpg), [bước chọn ghế](anh-doi-chieu/06-dut-chon-ghe.jpg) và [bước chọn combo](anh-doi-chieu/07-dut-combo.jpg).

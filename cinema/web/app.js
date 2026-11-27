@@ -99,7 +99,6 @@ let seatEvents = null;
 let seatRequest = 0;
 let seatSignature = null;
 let checkoutBusy = false;
-let pendingCheckout = false;
 let paymentBusy = false;
 let paymentRevision = 0;
 let booking = null;
@@ -1108,7 +1107,6 @@ function openScreening(slot, origin) {
     concessionQty = new Map();
     appliedPromoCode = "";
     redeemedPoints = 0;
-    pendingCheckout = false;
     seatSignature = null;
     $("customer").value = currentAccount?.full_name || "";
     $("reload-seats").hidden = true;
@@ -1132,11 +1130,11 @@ function openScreening(slot, origin) {
 
 async function refreshSeats() {
     const id = screening?.id;
-    if (!id || checkoutBusy || pendingCheckout) return;
+    if (!id || checkoutBusy) return;
     const request = ++seatRequest;
     try {
         const seats = await api(`/api/screenings/${encodeURIComponent(id)}/seats`);
-        if (screening?.id !== id || request !== seatRequest || checkoutBusy || pendingCheckout) return;
+        if (screening?.id !== id || request !== seatRequest || checkoutBusy) return;
         $("reload-seats").hidden = true;
         const signature = JSON.stringify(seats);
         if (signature === seatSignature) return;
@@ -1144,7 +1142,7 @@ async function refreshSeats() {
         seatList = seats;
         renderSeats(seats);
     } catch (error) {
-        if (screening?.id !== id || request !== seatRequest || checkoutBusy || pendingCheckout) return;
+        if (screening?.id !== id || request !== seatRequest || checkoutBusy) return;
         if (!seatSignature) {
             $("seats").replaceChildren(element("p", error.message, "seat-message"));
             $("reload-seats").hidden = false;
@@ -1201,7 +1199,7 @@ function renderSelection() {
         : ["Chưa chọn ghế"]));
     setText("seat-subtotal", formatPrice.format(currentSeatsTotal()));
     $("to-concessions").disabled = checkoutBusy || !selected.size;
-    $("customer").disabled = checkoutBusy || pendingCheckout;
+    $("customer").disabled = checkoutBusy;
 }
 
 function renderSeats(seats) {
@@ -1232,6 +1230,7 @@ function renderSeats(seats) {
         button.classList.toggle("premium", premium);
         button.classList.toggle("couple", couple);
         button.classList.toggle("unavailable", button.disabled);
+        button.classList.toggle("held", seat.status === "HELD");
         function update() {
             const pressed = selected.has(seat.label);
             button.classList.toggle("selected", pressed);
@@ -1239,7 +1238,7 @@ function renderSeats(seats) {
         }
         update();
         button.addEventListener("click", () => {
-            if (checkoutBusy || pendingCheckout) return;
+            if (checkoutBusy) return;
             if (selected.has(seat.label)) selected.delete(seat.label);
             else if (selected.size < 8) selected.add(seat.label);
             else return notice("Mỗi đơn giữ tối đa 8 ghế.");
@@ -1264,6 +1263,7 @@ function renderSeats(seats) {
 
 $("reload-seats").addEventListener("click", refreshSeats);
 $("back").addEventListener("click", () => {
+    if (page.has("screening")) { location.assign("/#lich-chieu"); return; }
     stopSeatUpdates();
     notice();
     show("catalog");
@@ -1271,56 +1271,59 @@ $("back").addEventListener("click", () => {
 });
 
 /* ---------------- BOOKING STEP 2: CONCESSIONS & PROMOTIONS ---------------- */
-function concessionsTotal() {
-    let total = 0;
-    for (const item of catalogData.concessions || []) {
-        total += (concessionQty.get(item.id) || 0) * item.price;
-    }
-    return total;
-}
+let quoteVersion = 0;
+let quoteTimer = null;
+let validQuote = false;
 
-function previewDiscount(subtotal) {
-    let discount = 0;
-    let promoError = "";
-    const code = appliedPromoCode.trim().toUpperCase();
-    if (code) {
-        const promo = (catalogData.promotions || []).find((p) => (p.code || "").toUpperCase() === code);
-        if (!promo) promoError = "Mã khuyến mãi không hợp lệ.";
-        else if (subtotal < promo.min_amount) promoError = `Mã ${code} áp dụng cho đơn từ ${formatPrice.format(promo.min_amount)}.`;
-        else if (promo.discount_type === "PERCENT") discount += Math.floor((subtotal * promo.discount_value) / 100);
-        else if (promo.discount_type === "FIXED") discount += promo.discount_value;
-    }
-    const pointsDiscount = redeemedPoints * 1000;
-    discount = Math.min(discount + pointsDiscount, Math.max(0, subtotal - 10000));
-    return { discount, promoError };
+function bookingOptions() {
+    return {
+        concessions: [...concessionQty].filter(([, quantity]) => quantity > 0)
+            .map(([id, quantity]) => ({ id, quantity })),
+        promo_code: appliedPromoCode || null,
+        redeem_points: redeemedPoints,
+    };
 }
 
 function renderConcessionsSummary() {
-    const seatsPrice = currentSeatsTotal();
-    const comboPrice = concessionsTotal();
-    const subtotal = seatsPrice + comboPrice;
-    const { discount, promoError } = previewDiscount(subtotal);
-    const grandTotal = Math.max(10000, subtotal - discount);
-
-    setText("concessions-seats-list", orderedSelection().join(", "));
-    setText("summary-seats-price", formatPrice.format(seatsPrice));
-    setText("summary-concessions-price", formatPrice.format(comboPrice));
-    $("summary-discount-row").hidden = discount <= 0;
-    setText("summary-discount-price", `-${formatPrice.format(discount)}`);
-    setText("summary-grand-total", formatPrice.format(grandTotal));
-
-    if (promoError) report("promo-feedback", promoError, "ERROR");
-    else if (appliedPromoCode) report("promo-feedback", `Đã áp dụng mã ${appliedPromoCode}.`);
-    else report("promo-feedback");
-
-    $("hold").disabled = checkoutBusy;
-    setText("hold", checkoutBusy ? "Đang giữ ghế…" : pendingCheckout ? "Thử giữ ghế lại" : "Giữ ghế & Thanh toán");
+    const options = bookingOptions();
+    sessionStorage.setItem(`options-${bookingId}`, JSON.stringify(options));
+    const version = ++quoteVersion;
+    validQuote = false;
+    $("hold").disabled = true;
+    setText("summary-grand-total", "Đang tính…");
+    setText("concessions-seats-list", booking.seats.join(", "));
+    setText("summary-seats-price", formatPrice.format(booking.amount));
+    clearTimeout(quoteTimer);
+    quoteTimer = setTimeout(async () => {
+        try {
+            const quote = await post(`/api/bookings/${bookingId}/quote`, options);
+            if (version !== quoteVersion || $("concessions-step").hidden) return;
+            validQuote = true;
+            setText("summary-concessions-price", formatPrice.format(quote.concessions_amount));
+            $("summary-discount-row").hidden = !quote.discount_amount;
+            setText("summary-discount-price", `−${formatPrice.format(quote.discount_amount)}`);
+            setText("summary-grand-total", formatPrice.format(quote.amount));
+            report("promo-feedback", [
+                quote.promo_code && `Đã áp dụng ${quote.promo_code}.`,
+                redeemedPoints && `Số điểm sẽ dùng: ${quote.points_redeemed}.`,
+            ].filter(Boolean).join(" "));
+            updateTimer();
+        } catch (error) {
+            if (version !== quoteVersion) return;
+            setText("summary-grand-total", "Chưa chốt giá");
+            report("promo-feedback", error.message);
+            $("retry-quote").hidden = false;
+        }
+    }, 150);
+    $("retry-quote").hidden = true;
 }
 
+$("retry-quote").addEventListener("click", renderConcessionsSummary);
+
 function renderConcessionsStep() {
-    setText("concessions-movie-title", screening.title);
-    setText("concessions-movie-details", `${screening.cinema_name || "DUT Nguyễn Du"} · ${screeningLabel(screening)}`);
-    renderBookingPoster("concessions-poster", screening.movie_id ?? screening.title);
+    setText("concessions-movie-title", booking.movie_title);
+    setText("concessions-movie-details", `${booking.cinema_name || "DUT Nguyễn Du"} · ${screeningLabel(booking)}`);
+    renderBookingPoster("concessions-poster", booking.movie_title);
 
     $("concession-list").replaceChildren(...(catalogData.concessions || []).map((item) => {
         const row = element("article", null, "concession-item");
@@ -1338,18 +1341,21 @@ function renderConcessionsStep() {
         const inc = element("button", "+", "qty-btn");
         inc.type = "button";
         inc.setAttribute("aria-label", `Tăng ${item.name}`);
-        dec.onclick = () => {
-            const next = Math.max(0, (concessionQty.get(item.id) || 0) - 1);
+        function updateQuantity(quantity) {
+            qtySpan.textContent = String(quantity);
+            row.classList.toggle("in-cart", quantity > 0);
+            dec.disabled = quantity === 0;
+            inc.disabled = quantity >= 20;
+        }
+        function changeQuantity(delta) {
+            const next = Math.max(0, Math.min(20, (concessionQty.get(item.id) || 0) + delta));
             concessionQty.set(item.id, next);
-            qtySpan.textContent = String(next);
+            updateQuantity(next);
             renderConcessionsSummary();
-        };
-        inc.onclick = () => {
-            const next = Math.min(20, (concessionQty.get(item.id) || 0) + 1);
-            concessionQty.set(item.id, next);
-            qtySpan.textContent = String(next);
-            renderConcessionsSummary();
-        };
+        }
+        updateQuantity(concessionQty.get(item.id) || 0);
+        dec.onclick = () => changeQuantity(-1);
+        inc.onclick = () => changeQuantity(1);
         ctrl.append(dec, qtySpan, inc);
         row.append(info, ctrl);
         return row;
@@ -1382,19 +1388,37 @@ function renderConcessionsStep() {
 
 $("checkout").addEventListener("submit", async (event) => {
     event.preventDefault();
-    if (!selected.size || !screening) return;
-    notice();
-    await ensureCatalogData();
-    show("concessions-step");
-    renderConcessionsStep();
-    window.scrollTo(0, 0);
-    $("concessions-heading").focus({ preventScroll: true });
+    if (!selected.size || !screening || checkoutBusy) return;
+    checkoutBusy = true;
+    renderSelection();
+    const payload = { screening_id: screening.id, seats: orderedSelection(), customer_name: $("customer").value.trim() || null };
+    try {
+        const held = await post("/api/holds", payload, requestKey("hold-seats", payload));
+        sessionStorage.removeItem("hold-seats");
+        location.assign(orderUrl(held.id));
+    } catch (error) {
+        checkoutBusy = false;
+        if (error.status === 409) {
+            sessionStorage.removeItem("hold-seats");
+            await refreshSeats();
+        }
+        notice(error.message);
+        renderSelection();
+    }
 });
 
-$("back-to-seats").addEventListener("click", () => {
-    notice();
-    show("seating");
-    $("seating-heading").focus({ preventScroll: true });
+$("back-to-seats").addEventListener("click", async () => {
+    if (checkoutBusy) return;
+    checkoutBusy = true;
+    try {
+        await api(`/api/bookings/${bookingId}/cancel`, {method: "POST"});
+        sessionStorage.removeItem(`options-${bookingId}`);
+        location.replace(`/?screening=${encodeURIComponent(booking.screening_id)}`);
+    } catch (error) {
+        notice(error.message);
+    } finally {
+        checkoutBusy = false;
+    }
 });
 
 $("apply-promo-btn").addEventListener("click", () => {
@@ -1403,69 +1427,63 @@ $("apply-promo-btn").addEventListener("click", () => {
 });
 
 $("redeem-points-input").addEventListener("input", () => {
-    const maxPts = currentAccount?.points || 0;
+    const maxPts = Math.min(currentAccount?.points || 0, 5000);
     redeemedPoints = Math.max(0, Math.min(maxPts, Math.floor(Number($("redeem-points-input").value) || 0)));
     $("redeem-points-input").value = String(redeemedPoints);
     renderConcessionsSummary();
 });
 
 $("redeem-max-btn").addEventListener("click", () => {
-    const maxPts = currentAccount?.points || 0;
-    const subtotal = currentSeatsTotal() + concessionsTotal();
-    const maxUseful = Math.max(0, Math.floor((subtotal - 10000) / 1000));
-    redeemedPoints = Math.min(maxPts, maxUseful);
+    const maxPts = Math.min(currentAccount?.points || 0, 5000);
+    redeemedPoints = maxPts;
     $("redeem-points-input").value = String(redeemedPoints);
     renderConcessionsSummary();
 });
 
-$("hold").addEventListener("click", async () => {
-    if (checkoutBusy || !selected.size || !screening) return;
-    const concessions = [];
-    for (const [id, quantity] of concessionQty.entries()) {
-        if (quantity > 0) concessions.push({ id, quantity });
-    }
-    const payload = {
-        screening_id: screening.id,
-        seats: orderedSelection(),
-        customer_name: $("customer").value.trim() || null,
-        concessions,
-        promo_code: appliedPromoCode || null,
-        redeem_points: redeemedPoints || 0,
-    };
+async function prepareOrder(skipCombo) {
+    if (checkoutBusy) return;
+    const options = bookingOptions();
+    if (skipCombo) options.concessions = [];
     checkoutBusy = true;
-    $("back-to-seats").disabled = true;
-    renderConcessionsSummary();
+    paymentRevision += 1;
+    $("concessions-step").inert = true;
     notice();
     try {
-        const result = await post("/api/checkout", payload, requestKey("checkout", payload));
-        sessionStorage.removeItem("checkout");
-        stopSeatUpdates();
+        const result = await post(`/api/bookings/${bookingId}/prepare`, options);
+        ++quoteVersion;
+        sessionStorage.removeItem(`options-${bookingId}`);
         payment = result.payment;
         openOrder(result.booking);
     } catch (error) {
-        pendingCheckout = !error.status || error.status >= 500;
-        notice(pendingCheckout ? `${error.message} Bấm “Thử giữ ghế lại” để tiếp tục yêu cầu.` : error.message);
-        if (!pendingCheckout) sessionStorage.removeItem("checkout");
-        if (error.status === 409) {
-            show("seating");
-            void refreshSeats();
-        }
+        notice(error.message);
+        void refreshOrder();
     } finally {
         checkoutBusy = false;
-        $("back-to-seats").disabled = false;
-        if (!$("concessions-step").hidden) renderConcessionsSummary();
+        $("concessions-step").inert = false;
     }
-});
+}
+
+$("hold").addEventListener("click", () => prepareOrder(false));
+$("skip-combo").addEventListener("click", () => prepareOrder(true));
 
 /* ---------------- BOOKING STEP 3 & 4: PAYMENT & TICKETS ---------------- */
 function updateTimer() {
     if (!booking) return;
-    const remaining = Math.max(0, Math.ceil((Date.parse(booking.expires_at) - Date.now() - clockOffset) / 1000));
+    const awaiting = ["PROCESSING", "SUCCEEDED"].includes(payment?.status);
+    const deadline = awaiting ? booking.expires_at : (booking.pay_by || booking.expires_at);
+    const remaining = Math.max(0, Math.ceil((Date.parse(deadline) - Date.now() - clockOffset) / 1000));
     const minutes = Math.floor(remaining / 60);
     const seconds = String(remaining % 60).padStart(2, "0");
+    if (!$("concessions-step").hidden) {
+        setText("hold-timer", remaining ? `Đang giữ ${booking.seats.join(", ")} · Còn ${minutes}:${seconds}` : "Thời hạn giữ ghế đã kết thúc.");
+        $("hold").disabled = checkoutBusy || !validQuote || !remaining;
+        $("skip-combo").disabled = checkoutBusy || !remaining;
+    }
     $("timer").hidden = booking.status !== "HELD";
     setText("timer", remaining ? `Giữ ghế còn ${minutes}:${seconds}` : "Đang cập nhật thời hạn giữ ghế…");
-    $("pay").disabled = paymentBusy || remaining === 0;
+    const canStart = !booking.pay_by || Date.parse(booking.pay_by) > Date.now() + clockOffset;
+    $("pay").disabled = paymentBusy || !remaining || !canStart;
+    if (awaiting && remaining > 0) setText("timer", `Chờ xác nhận giao dịch · ${minutes}:${seconds}`);
     $("outcome").disabled = paymentBusy;
     $("delay").disabled = paymentBusy;
     $("simulate").setAttribute("aria-busy", String(paymentBusy));
@@ -1478,6 +1496,7 @@ function setBooking(value) {
 }
 
 function openOrder(value) {
+    missingOrder = false;
     bookingId = value.id;
     history.replaceState(null, "", orderUrl(bookingId));
     setBooking(value);
@@ -1555,12 +1574,15 @@ function renderOrder() {
     const concessions = booking.concessions || [];
     $("order-concessions-row").hidden = concessions.length === 0;
     if (concessions.length) {
-        setText("order-concessions", concessions.map((c) => `${c.name} ×${c.quantity}`).join(", "));
+        setText("order-concessions", concessions.map((c) => `${c.name} ×${c.quantity} · ${formatPrice.format(c.total)}`).join(", "));
     }
     $("order-discount-row").hidden = !(booking.discount_amount > 0);
     if (booking.discount_amount > 0) {
         setText("order-discount", `-${formatPrice.format(booking.discount_amount)}`);
     }
+    setText("order-seat-price", formatPrice.format(booking.amount + booking.discount_amount - booking.concessions_amount));
+    setText("order-points", String(booking.points_redeemed || 0));
+    $("order-points-row").hidden = !booking.points_redeemed;
     setText("amount", formatPrice.format(booking.amount));
 
     const status = $("payment-status");
@@ -1594,15 +1616,38 @@ function renderOrder() {
 }
 
 async function refreshOrder() {
-    if (!bookingId || missingOrder || loadingOrder || paymentBusy || booking?.tickets?.length) return;
+    if (!bookingId || missingOrder || loadingOrder || paymentBusy || checkoutBusy || booking?.tickets?.length) return;
     loadingOrder = true;
     const revision = paymentRevision;
     const path = `/api/bookings/${encodeURIComponent(bookingId)}`;
     try {
-        setBooking(await api(path));
+        const value = await api(path);
+        if (checkoutBusy || revision !== paymentRevision) return;
+        setBooking(value);
+        if (booking.checkout_phase === "DRAFT" && booking.status === "HELD") {
+            if ($("concessions-step").hidden) {
+                await Promise.all([ensureCatalogData(), loadAccount()]);
+                const options = JSON.parse(sessionStorage.getItem(`options-${bookingId}`) || "{}");
+                concessionQty = new Map((options.concessions || []).map(item => [item.id, item.quantity]));
+                appliedPromoCode = options.promo_code || "";
+                redeemedPoints = options.redeem_points || 0;
+                show("concessions-step");
+                renderConcessionsStep();
+                $("concessions-heading").focus({preventScroll:true});
+            }
+            updateTimer();
+            return;
+        }
+        if (!$("concessions-step").hidden) show("order");
         renderOrder();
-        if (booking.status !== "CONFIRMED" && payment?.status !== "REFUNDED") {
-            const nextPayment = await api(`${path}/payment`);
+        if (booking.checkout_phase !== "DRAFT" && booking.status !== "CONFIRMED" && payment?.status !== "REFUNDED") {
+            let nextPayment;
+            try {
+                nextPayment = await api(`${path}/payment`);
+            } catch (error) {
+                if (error.status !== 404 || booking.checkout_phase !== "READY" || booking.status !== "HELD") throw error;
+                nextPayment = await post(`${path}/payment`, {});
+            }
             if (revision === paymentRevision) {
                 payment = nextPayment;
                 renderOrder();
@@ -1647,9 +1692,9 @@ $("cancel-hold").addEventListener("click", async () => {
     const btn = $("cancel-hold");
     btn.disabled = true;
     try {
-        setBooking(await api(`/api/bookings/${encodeURIComponent(bookingId)}/cancel`, { method: "POST" }));
-        renderOrder();
-        void loadAccount();
+        const cancelled = await api(`/api/bookings/${encodeURIComponent(bookingId)}/cancel`, { method: "POST" });
+        sessionStorage.removeItem(`options-${bookingId}`);
+        location.replace(`/?screening=${encodeURIComponent(cancelled.screening_id)}`);
     } catch (error) {
         notice(error.message);
     } finally {
@@ -2638,6 +2683,12 @@ window.addEventListener("pageshow", (event) => {
 if (bookingId) {
     show("order");
     void refreshOrder();
+} else if (page.has("screening")) {
+    ensureCatalogData().then(() => {
+        const slot = catalogData.screenings.find(item => item.id === page.get("screening"));
+        if (slot) openScreening(slot, null);
+        else location.replace("/#lich-chieu");
+    }).catch(error => notice(error.message));
 } else if (currentView === "movie" && page.get("id")) {
     void loadMovieDetail(page.get("id"));
 } else if (currentView === "cinemas") {

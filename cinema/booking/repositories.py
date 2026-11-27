@@ -35,6 +35,10 @@ class ScreeningSeatRepository:
             (screening_id, seats),
         ).fetchall()
 
+    def notify_change(self, connection, screening_id):
+        # PostgreSQL delivers NOTIFY only after the surrounding transaction commits.
+        connection.execute("SELECT pg_notify('cinema_seat_changes', %s)", (screening_id,))
+
     def hold(self, connection, booking):
         connection.execute(
             """
@@ -44,6 +48,8 @@ class ScreeningSeatRepository:
         """,
             booking,
         )
+
+        self.notify_change(connection, booking["screening_id"])
 
     def release(self, connection, booking):
         connection.execute(
@@ -56,8 +62,10 @@ class ScreeningSeatRepository:
             booking,
         )
 
+        self.notify_change(connection, booking["screening_id"])
+
     def sell(self, connection, booking):
-        return connection.execute(
+        sold = connection.execute(
             """
             UPDATE cinema_booking.screening_seats SET status = 'SOLD', expires_at = NULL
             WHERE screening_id = %(screening_id)s AND label = ANY(%(seats)s)
@@ -65,6 +73,8 @@ class ScreeningSeatRepository:
         """,
             booking,
         ).rowcount
+        self.notify_change(connection, booking["screening_id"])
+        return sold
 
 
 class BookingRepository:
@@ -87,11 +97,11 @@ class BookingRepository:
                 (id, request_key, request_hash, screening_id, movie_title, starts_at, auditorium,
                  seats, customer_name, amount, status, expires_at, account_id,
                  cinema_name, screening_format, concessions, concessions_amount,
-                 discount_amount, promo_code, points_redeemed)
+                 discount_amount, promo_code, points_redeemed, checkout_phase, hold_owner)
             VALUES (%(id)s, %(request_key)s, %(request_hash)s, %(screening_id)s, %(movie_title)s, %(starts_at)s,
                     %(auditorium)s, %(seats)s, %(customer_name)s, %(amount)s, 'HELD', %(expires_at)s, %(account_id)s,
                     %(cinema_name)s, %(screening_format)s, %(concessions)s, %(concessions_amount)s,
-                    %(discount_amount)s, %(promo_code)s, %(points_redeemed)s)
+                    %(discount_amount)s, %(promo_code)s, %(points_redeemed)s, %(checkout_phase)s, %(hold_owner)s)
         """,
             row,
         )
@@ -135,7 +145,7 @@ class BookingRepository:
             """
             SELECT id, screening_id, movie_title, starts_at, auditorium, seats, customer_name, amount, expires_at,
                    cinema_name, screening_format, concessions, concessions_amount,
-                   discount_amount, promo_code, points_redeemed,
+                   discount_amount, promo_code, points_redeemed, checkout_phase, pay_by,
                    statement_timestamp() AS server_now,
                    CASE WHEN status = 'HELD' AND expires_at <= statement_timestamp()
                         THEN 'EXPIRED' ELSE status END AS status,
