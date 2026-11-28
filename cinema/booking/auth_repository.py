@@ -178,6 +178,18 @@ class AccountRepository:
     def revoke_session(self, connection, token_hash):
         connection.execute("DELETE FROM cinema_booking.account_sessions WHERE token_hash = %s", (token_hash,))
 
+    def revoke_other_sessions(self, connection, account_id, keep_token_hash=None):
+        if keep_token_hash:
+            connection.execute(
+                "DELETE FROM cinema_booking.account_sessions WHERE account_id = %s AND token_hash <> %s",
+                (account_id, keep_token_hash),
+            )
+        else:
+            connection.execute(
+                "DELETE FROM cinema_booking.account_sessions WHERE account_id = %s",
+                (account_id,),
+            )
+
     def record_attempt(self, connection, subject, lifetime, limit):
         return connection.execute(
             """

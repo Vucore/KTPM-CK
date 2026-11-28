@@ -57,6 +57,12 @@ class BookingViewer:
     account_id: UUID | None = None
     history_key: str | None = None
     role: str | None = None
+    browser_key: str | None = None
+
+    def owns_hold(self, hold_owner: str | None) -> bool:
+        if not hold_owner:
+            return True
+        return hold_owner in {self.history_key, self.browser_key}
 
 
 def token_digest(value: str) -> str:
@@ -166,7 +172,15 @@ class AuthService:
             updated["tier"] = member_tier(updated["total_spent"])
             return updated
 
-    def change_password(self, account_id: UUID, data: PasswordChange):
+    def change_password(
+        self,
+        account_id: UUID,
+        data: PasswordChange,
+        *,
+        source: str = "unknown",
+        current_token: str | None = None,
+    ):
+        self._throttle("password", str(account_id), source)
         with self.db.transaction() as connection:
             account = self.accounts.find_by_id(connection, account_id)
         if not account:
@@ -180,8 +194,10 @@ class AuthService:
         if not verified:
             raise HTTPException(401, "Mật khẩu hiện tại không đúng")
         new_hash = self.passwords.hash(data.new_password.get_secret_value())
+        keep_hash = token_digest(current_token) if current_token else None
         with self.db.transaction() as connection:
             self.accounts.update_password_hash(connection, account_id, account["password_hash"], new_hash)
+            self.accounts.revoke_other_sessions(connection, account_id, keep_hash)
 
     def logout(self, token: str | None):
         if token:

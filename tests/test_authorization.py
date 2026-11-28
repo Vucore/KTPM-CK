@@ -167,6 +167,15 @@ class InMemoryAccountRepo:
     def revoke_session(self, connection, token_hash):
         self.sessions.pop(token_hash, None)
 
+    def revoke_other_sessions(self, connection, account_id, keep_token_hash=None):
+        to_delete = [
+            token_hash
+            for token_hash, owner_id in self.sessions.items()
+            if owner_id == account_id and token_hash != keep_token_hash
+        ]
+        for token_hash in to_delete:
+            self.sessions.pop(token_hash, None)
+
     def record_attempt(self, connection, subject, lifetime, limit):
         count = min(self.attempts.get(subject, 0) + 1, limit + 1)
         self.attempts[subject] = count
@@ -269,7 +278,10 @@ class InMemoryBookingRepo:
         b = self.bookings.get(booking_id)
         if not b:
             return None
-        if b["account_id"] is not None and b["account_id"] != viewer.account_id:
+        if b["account_id"] is not None:
+            if b["account_id"] != viewer.account_id:
+                return None
+        elif not viewer.owns_hold(b.get("hold_owner")):
             return None
         status = "EXPIRED" if b["status"] == "HELD" and b["expires_at"] <= datetime.now(UTC) else b["status"]
         return {
@@ -299,9 +311,12 @@ class InMemoryBookingRepo:
     def saved_list(self, connection, viewer: BookingViewer):
         rows = []
         for b in self.bookings.values():
-            if (viewer.history_key, b["id"]) in self.saved and (
-                b["account_id"] is None or b["account_id"] == viewer.account_id
-            ):
+            accessible = (
+                b["account_id"] == viewer.account_id
+                if b["account_id"] is not None
+                else viewer.owns_hold(b.get("hold_owner"))
+            )
+            if (viewer.history_key, b["id"]) in self.saved and accessible:
                 rows.append(
                     {
                         "id": b["id"],
@@ -765,7 +780,7 @@ def test_idor_for_bookings_checkout_and_tickets(authz_harness):
         assert user_b.get(f"/api/tickets/{user_ticket_code}/qr.svg").status_code == 404
         assert guest_stranger.get(f"/api/tickets/{user_ticket_code}").status_code == 404
 
-        # 2. Guest legacy /api/checkout binds hold_owner so strangers cannot cancel or simulate payment
+        # 2. Guest legacy /api/checkout binds hold_owner so strangers cannot read, save, cancel, or simulate payment
         guest_checkout = guest_owner.post(
             "/api/checkout",
             json={"screening_id": "scr-1", "seats": ["A2"]},
@@ -775,16 +790,19 @@ def test_idor_for_bookings_checkout_and_tickets(authz_harness):
         guest_booking_id = UUID(guest_checkout.json()["booking"]["id"])
         assert authz_harness.booking_repo.bookings[guest_booking_id]["hold_owner"] is not None
 
-        assert guest_stranger.post(f"/api/bookings/{guest_booking_id}/cancel").status_code == 404
-        assert (
-            guest_stranger.post(
-                f"/api/bookings/{guest_booking_id}/payment/simulate",
-                json={"outcome": "success"},
-                headers={"Idempotency-Key": str(uuid4())},
-            ).status_code
-            == 404
-        )
-        assert user_b.post(f"/api/bookings/{guest_booking_id}/cancel").status_code == 404
+        for stranger in (guest_stranger, user_b):
+            assert stranger.get(f"/api/bookings/{guest_booking_id}").status_code == 404
+            assert stranger.get(f"/api/bookings/{guest_booking_id}/payment").status_code == 404
+            assert stranger.put(f"/api/my-bookings/{guest_booking_id}").status_code == 404
+            assert stranger.post(f"/api/bookings/{guest_booking_id}/cancel").status_code == 404
+            assert (
+                stranger.post(
+                    f"/api/bookings/{guest_booking_id}/payment/simulate",
+                    json={"outcome": "success"},
+                    headers={"Idempotency-Key": str(uuid4())},
+                ).status_code
+                == 404
+            )
 
         guest_ticket_code = uuid4()
         authz_harness.ticket_repo.insert(
@@ -800,6 +818,52 @@ def test_idor_for_bookings_checkout_and_tickets(authz_harness):
         assert guest_owner.get(f"/api/tickets/{guest_ticket_code}").status_code == 200
         assert guest_stranger.get(f"/api/tickets/{guest_ticket_code}").status_code == 404
         assert user_b.get(f"/api/tickets/{guest_ticket_code}").status_code == 404
+
+        # 3. Guest who holds seats and then logs in on the SAME browser keeps access to their hold
+        guest_hold_res = guest_owner.post(
+            "/api/holds",
+            json={"screening_id": "scr-1", "seats": ["A5"]},
+            headers={"Idempotency-Key": str(uuid4())},
+        )
+        assert guest_hold_res.status_code == 201
+        same_browser_hold_id = guest_hold_res.json()["id"]
+        assert (
+            guest_owner.post(
+                "/api/auth/login",
+                json={"username": "usera", "password": "Mat khau an toan du 15 ky tu"},
+            ).status_code
+            == 200
+        )
+        assert guest_owner.get(f"/api/bookings/{same_browser_hold_id}").status_code == 200
+        assert guest_owner.post(f"/api/bookings/{same_browser_hold_id}/cancel").status_code == 200
+        assert guest_owner.get(f"/api/tickets/{guest_ticket_code}").status_code == 200
+
+
+def test_change_password_revokes_other_sessions_and_throttles(authz_harness):
+    old_pw = "Mat khau an toan du 15 ky tu"
+    new_pw = "Mat khau moi an toan hon 15 ky tu"
+    with authz_harness.login("usera") as device1, authz_harness.login("usera") as device2:
+        assert device1.get("/api/account/profile").status_code == 200
+        assert device2.get("/api/account/profile").status_code == 200
+
+        changed = device1.post(
+            "/api/account/password",
+            json={"current_password": old_pw, "new_password": new_pw},
+        )
+        assert changed.status_code == 204
+        # Current device stays logged in; other device's session is revoked immediately
+        assert device1.get("/api/account/profile").status_code == 200
+        assert device2.get("/api/account/profile").status_code == 401
+
+        # Repeated wrong current_password attempts hit rate limit (429)
+        statuses = []
+        for _ in range(9):
+            res = device1.post(
+                "/api/account/password",
+                json={"current_password": "sai-mat-khau-hien-tai", "new_password": old_pw},
+            )
+            statuses.append(res.status_code)
+        assert 429 in statuses
 
 
 def test_server_side_pricing_csrf_origin_and_http_methods(authz_harness):

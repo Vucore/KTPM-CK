@@ -829,15 +829,16 @@
 
             <div id="admin-workspace" hidden>
                 <div class="movie-tabs admin-tabs" id="admin-tablist" role="tablist" aria-label="Chuyên mục quản trị">
-                    <button class="movie-tab" type="button" data-admin-tab="overview" aria-selected="true">1. Tổng quan &amp; Đơn vé</button>
-                    <button class="movie-tab" type="button" data-admin-tab="checkin" aria-selected="false">2. Soát vé QR</button>
-                    <button class="movie-tab" type="button" data-admin-tab="movies" aria-selected="false">3. Quản lý Phim</button>
-                    <button class="movie-tab" type="button" data-admin-tab="screenings" aria-selected="false">4. Rạp &amp; Suất chiếu</button>
-                    <button class="movie-tab" type="button" data-admin-tab="concessions" aria-selected="false">5. Bắp nước &amp; Khuyến mãi</button>
-                    <button class="movie-tab" type="button" data-admin-tab="blog" aria-selected="false">6. Góc Điện Ảnh &amp; Thành viên</button>
+                    <button class="movie-tab" type="button" data-admin-tab="overview" aria-selected="true">1. Tổng quan doanh thu</button>
+                    <button class="movie-tab" type="button" data-admin-tab="bookings" aria-selected="false">2. Đơn đặt vé</button>
+                    <button class="movie-tab" type="button" data-admin-tab="checkin" aria-selected="false">3. Soát vé QR</button>
+                    <button class="movie-tab" type="button" data-admin-tab="movies" aria-selected="false">4. Quản lý Phim</button>
+                    <button class="movie-tab" type="button" data-admin-tab="screenings" aria-selected="false">5. Rạp &amp; Suất chiếu</button>
+                    <button class="movie-tab" type="button" data-admin-tab="concessions" aria-selected="false">6. Bắp nước &amp; Khuyến mãi</button>
+                    <button class="movie-tab" type="button" data-admin-tab="blog" aria-selected="false">7. Góc Điện Ảnh &amp; Thành viên</button>
                 </div>
 
-                <!-- TAB 1: OVERVIEW & BOOKINGS -->
+                <!-- TAB 1: OVERVIEW -->
                 <div id="admin-tab-overview" class="admin-tab-panel">
                     <div class="kpi-grid">
                         <article class="panel kpi-card">
@@ -882,7 +883,10 @@
                             </div>
                         </section>
                     </div>
+                </div>
 
+                <!-- TAB 2: BOOKINGS (STAFF & ADMIN) -->
+                <div id="admin-tab-bookings" class="admin-tab-panel" hidden>
                     <section class="panel">
                         <div class="section-heading">
                             <h2>Danh sách Đơn đặt vé</h2>
@@ -914,7 +918,7 @@
                     </section>
                 </div>
 
-                <!-- TAB 2: QR CHECK-IN -->
+                <!-- TAB 3: QR CHECK-IN -->
                 <div id="admin-tab-checkin" class="admin-tab-panel" hidden>
                     <div class="admin-two-col">
                         <form id="admin-checkin-form" class="panel">

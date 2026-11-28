@@ -24,12 +24,12 @@ Hệ thống định nghĩa 4 mức truy cập (kiểm chứng tại [api.py](..
 | Nhóm chức năng / Endpoint | Guest | USER | STAFF | ADMIN | Ghi chú |
 |---|---|---|---|---|---|
 | Trang chủ, danh mục phim, lịch chiếu, sơ đồ ghế (`GET /`, `/api/screenings`, `/api/catalog/home`, `/api/movies/{id}`, `/api/screenings/{id}/seats`) | Allow | Allow | Allow | Allow | Công khai |
-| Giữ ghế, chọn combo/promo, hủy giữ, thanh toán mô phỏng (`/api/holds`, `/api/checkout`, `/api/bookings/{id}/quote\|prepare\|cancel\|payment*`) | Own (theo trình duyệt `hold_owner`) | Own (theo `account_id`) | Own | Own | Người lạ nhận `404` |
+| Giữ ghế, xem đơn, chọn combo/promo, hủy giữ, thanh toán mô phỏng (`/api/holds`, `/api/checkout`, `/api/bookings/{id}*`) | Own (theo trình duyệt `hold_owner`) | Own (theo `account_id` hoặc `browser_key` cùng trình duyệt) | Own | Own | Người lạ nhận `404` trên cả `GET` lẫn thao tác ghi |
 | Đổi điểm D-Star (`redeem_points > 0`) | Deny (`401`) | Allow (điểm của mình) | Allow | Allow | Bắt buộc đăng nhập |
 | Lịch sử đặt vé (`/api/my-bookings*`) | Own (phạm vi `browser`) | Own (phạm vi `account`) | Own | Own | Cô lập theo session/browser |
 | Tra cứu chi tiết vé & mã QR (`GET /api/tickets/{code}`, `/qr.svg`) | Own (nếu là đơn Guest cùng trình duyệt) | Own | Allow (tất cả vé) | Allow (tất cả vé) | Người lạ nhận `404`; không trả `booking_id` |
-| Hồ sơ cá nhân & đổi mật khẩu (`GET/PATCH /api/account/profile`, `POST /api/account/password`) | Deny (`401`) | Own | Own | Own | Lấy `account_id` từ session, không nhận từ client |
-| Xem danh sách đơn & Check-in vé QR (`GET /api/admin/bookings`, `POST /api/admin/tickets/{code}/check-in`) | Deny (`401`) | Deny (`403`) | Allow | Allow | Vé đã check-in trả `409` khi quét lại |
+| Hồ sơ cá nhân & đổi mật khẩu (`GET/PATCH /api/account/profile`, `POST /api/account/password`) | Deny (`401`) | Own | Own | Own | Lấy `account_id` từ session; đổi mật khẩu thu hồi các phiên thiết bị khác và có rate-limit (`429`) |
+| Xem danh sách đơn & Check-in vé QR (`GET /api/admin/bookings`, `POST /api/admin/tickets/{code}/check-in`) | Deny (`401`) | Deny (`403`) | Allow | Allow | `STAFF` có 2 tab riêng trên UI (**Đơn đặt vé** và **Soát vé QR**); vé đã check-in trả `409` khi quét lại |
 | Doanh thu, quản lý phim/rạp/phòng/suất/bắp nước/KM/blog (`/api/admin/overview`, `/api/admin/catalog`, CRUD `/api/admin/*`) | Deny (`401`) | Deny (`403`) | Deny (`403`) | Allow | Bảo vệ cả Backend lẫn Frontend |
 | Danh sách & phân quyền tài khoản (`GET /api/admin/accounts`, `PATCH /api/admin/accounts/{id}/role`) | Deny (`401`) | Deny (`403`) | Deny (`403`) | Allow | Chặn tự hạ quyền & hạ quyền `ADMIN` cuối cùng (`409`) |
 | API nội bộ Catalog (`/admin/*`, cổng `8001`) & Payment (`/payments*`, cổng `8002`) | Deny (`403`) | Deny (`403`) | Deny (`403`) | Deny (`403`) | Chỉ cho phép request có header `X-Internal-Key` hợp lệ |

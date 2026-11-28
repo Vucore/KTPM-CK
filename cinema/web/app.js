@@ -2764,7 +2764,7 @@ function switchAdminTab(tabName) {
     document.querySelectorAll("#admin-tablist .movie-tab").forEach((btn) => {
         btn.setAttribute("aria-selected", String(btn.dataset.adminTab === tabName));
     });
-    for (const id of ["overview", "checkin", "movies", "screenings", "concessions", "blog"]) {
+    for (const id of ["overview", "bookings", "checkin", "movies", "screenings", "concessions", "blog"]) {
         $(`admin-tab-${id}`).hidden = id !== tabName;
     }
 }
@@ -3357,10 +3357,8 @@ async function refreshAdminCatalog() {
 async function loadAdminView() {
     show("admin-view");
     report("admin-status");
-    if (!currentAccount) {
-        const { account } = await api("/api/auth/session").catch(() => ({ account: null }));
-        currentAccount = account;
-    }
+    const { account } = await api("/api/auth/session").catch(() => ({ account: null }));
+    currentAccount = account;
     const role = currentAccount?.role;
     if (!role || !["ADMIN", "STAFF"].includes(role)) {
         $("admin-denied").hidden = false;
@@ -3372,14 +3370,20 @@ async function loadAdminView() {
     setText("admin-role-badge", role);
 
     const isAdmin = role === "ADMIN";
+    const staffTabs = new Set(["bookings", "checkin"]);
     document.querySelectorAll("#admin-tablist .movie-tab").forEach((tab) => {
         const tabKey = tab.dataset.adminTab;
-        if (!isAdmin && tabKey !== "checkin") tab.hidden = true;
+        if (!isAdmin && !staffTabs.has(tabKey)) tab.hidden = true;
         else tab.hidden = false;
     });
 
     if (!isAdmin) {
-        switchAdminTab("checkin");
+        switchAdminTab(staffTabs.has(activeAdminTab) ? activeAdminTab : "checkin");
+        try {
+            await loadAdminBookings();
+        } catch (error) {
+            report("admin-status", error.message);
+        }
         return;
     }
 
