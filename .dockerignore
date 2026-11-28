@@ -1,0 +1,16 @@
+.git
+.env
+.env.*
+!.env.example
+.venv
+.venv-*
+.uv-cache
+.pytest_cache
+.ruff_cache
+.runtime
+__pycache__
+*.pyc
+docs
+tests
+README.md
+KE_HOACH.md

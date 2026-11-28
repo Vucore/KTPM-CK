@@ -1,4 +1,28 @@
+x-app-env: &app-env
+  SUPABASE_DATABASE_URL: ${DOCKER_DATABASE_URL:-postgresql://cinema:cinema@postgres:5432/cinema}
+  RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/%2F
+  CATALOG_URL: http://catalog:8001
+  PAYMENT_URL: http://payment:8002
+  INTERNAL_API_KEY: ${INTERNAL_API_KEY}
+  HOLD_SECONDS: ${HOLD_SECONDS:-300}
+
 services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: cinema
+      POSTGRES_PASSWORD: cinema
+      POSTGRES_DB: cinema
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cinema -d cinema"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   rabbitmq:
     image: rabbitmq:4-management
     ports:
@@ -12,5 +36,81 @@ services:
       timeout: 5s
       retries: 8
 
+  setup:
+    build: .
+    command: ["python", "-m", "cinema.setup", "--seed"]
+    environment:
+      SUPABASE_DATABASE_URL: ${DOCKER_DATABASE_URL:-postgresql://cinema:cinema@postgres:5432/cinema}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  catalog:
+    build: .
+    command: ["uvicorn", "cinema.catalog.api:create_app", "--factory", "--host", "0.0.0.0", "--port", "8001"]
+    ports:
+      - "127.0.0.1:8001:8001"
+    environment:
+      <<: *app-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      setup:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    restart: unless-stopped
+
+  payment:
+    build: .
+    command: ["uvicorn", "cinema.payment.api:create_app", "--factory", "--host", "0.0.0.0", "--port", "8002"]
+    ports:
+      - "127.0.0.1:8002:8002"
+    environment:
+      <<: *app-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      setup:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8002/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    restart: unless-stopped
+
+  booking:
+    build: .
+    command: ["uvicorn", "cinema.booking.api:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000"]
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      <<: *app-env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      setup:
+        condition: service_completed_successfully
+      catalog:
+        condition: service_healthy
+      payment:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    restart: unless-stopped
+
 volumes:
+  postgres_data:
   rabbitmq_data:
