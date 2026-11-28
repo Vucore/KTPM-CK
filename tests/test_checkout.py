@@ -314,20 +314,21 @@ def test_account_history_isolated_during_concurrent_checkout_and_on_another_devi
         assert owner.get(detail).json()["tickets"] == confirmed["tickets"]
 
 
-def test_guest_history_is_private_to_browser_and_known_codes_can_be_saved(system):
+def test_guest_history_is_private_to_browser_and_isolated_from_strangers(system):
     booking = checkout(system, ["B2"]).json()["booking"]
     assert booking["saved"] is True
     assert system.web.get("/api/my-bookings").json()["bookings"][0]["id"] == booking["id"]
+    detail = f"/api/bookings/{booking['id']}"
+    saved = f"/api/my-bookings/{booking['id']}"
     with closing(TestClient(system.web.app)) as other:
         assert other.get("/api/my-bookings").json() == {"scope": "browser", "bookings": []}
-        detail = f"/api/bookings/{booking['id']}"
-        saved = f"/api/my-bookings/{booking['id']}"
-        assert other.get(detail).json()["saved"] is False
-        assert other.put(saved).status_code == 204
-        assert other.put(saved).status_code == 204
-        assert len(other.get("/api/my-bookings").json()["bookings"]) == 1
-        assert other.delete(saved).status_code == 204
-        assert system.web.get(detail).json()["saved"] is True
+        assert other.get(detail).status_code == 404
+        assert other.get(detail + "/payment").status_code == 404
+        assert other.put(saved).status_code == 404
+    assert system.web.delete(saved).status_code == 204
+    assert system.web.get(detail).json()["saved"] is False
+    assert system.web.put(saved).status_code == 204
+    assert system.web.get(detail).json()["saved"] is True
 
 
 def test_login_limits_repeated_attempts_and_rejects_cross_origin(system):

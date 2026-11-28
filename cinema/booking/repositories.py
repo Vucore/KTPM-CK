@@ -152,9 +152,16 @@ class BookingRepository:
                    EXISTS (SELECT 1 FROM cinema_booking.saved_bookings AS saved
                            WHERE saved.owner_key = %s AND saved.booking_id = booking.id) AS saved
             FROM cinema_booking.bookings AS booking
-            WHERE id = %s AND (account_id IS NULL OR account_id = %s)
+            WHERE id = %s
+              AND (
+                  (account_id IS NOT NULL AND account_id = %s)
+                  OR (
+                      account_id IS NULL
+                      AND (hold_owner IS NULL OR hold_owner = %s OR hold_owner = %s)
+                  )
+              )
         """,
-            (viewer.history_key, booking_id, viewer.account_id),
+            (viewer.history_key, booking_id, viewer.account_id, viewer.history_key, viewer.browser_key),
         ).fetchone()
 
     def saved_list(self, connection, viewer):
@@ -166,10 +173,17 @@ class BookingRepository:
                         THEN 'EXPIRED' ELSE booking.status END AS status
             FROM cinema_booking.saved_bookings AS saved
             JOIN cinema_booking.bookings AS booking ON booking.id = saved.booking_id
-            WHERE saved.owner_key = %s AND (booking.account_id IS NULL OR booking.account_id = %s)
+            WHERE saved.owner_key = %s
+              AND (
+                  (booking.account_id IS NOT NULL AND booking.account_id = %s)
+                  OR (
+                      booking.account_id IS NULL
+                      AND (booking.hold_owner IS NULL OR booking.hold_owner = %s OR booking.hold_owner = %s)
+                  )
+              )
             ORDER BY saved.saved_at DESC, saved.booking_id
             """,
-            (viewer.history_key, viewer.account_id),
+            (viewer.history_key, viewer.account_id, viewer.history_key, viewer.browser_key),
         ).fetchall()
 
     def save(self, connection, history_key, booking_id):
@@ -248,33 +262,33 @@ class BookingRepository:
         return {"kpi": kpi, "by_movie": by_movie, "by_cinema": by_cinema}
 
     def admin_bookings(self, connection, status_filter: str | None = None, query: str | None = None):
-        rows = connection.execute(
+        needle = f"%{query.strip().lower()}%" if query and query.strip() else None
+        status = status_filter or None
+        return connection.execute(
             """
-            SELECT b.id, b.screening_id, b.movie_title, b.starts_at, b.auditorium,
-                   b.cinema_name, b.screening_format, b.seats, b.customer_name,
-                   b.amount, b.concessions_amount, b.discount_amount, b.promo_code,
-                   b.points_redeemed, a.username AS account_username,
-                   CASE WHEN b.status = 'HELD' AND b.expires_at <= statement_timestamp()
-                        THEN 'EXPIRED' ELSE b.status END AS status
-            FROM cinema_booking.bookings b
-            LEFT JOIN cinema_booking.accounts a ON a.id = b.account_id
-            ORDER BY b.starts_at DESC, b.id
+            SELECT * FROM (
+                SELECT b.id, b.screening_id, b.movie_title, b.starts_at, b.auditorium,
+                       b.cinema_name, b.screening_format, b.seats, b.customer_name,
+                       b.amount, b.concessions_amount, b.discount_amount, b.promo_code,
+                       b.points_redeemed, a.username AS account_username,
+                       CASE WHEN b.status = 'HELD' AND b.expires_at <= statement_timestamp()
+                            THEN 'EXPIRED' ELSE b.status END AS status
+                FROM cinema_booking.bookings b
+                LEFT JOIN cinema_booking.accounts a ON a.id = b.account_id
+            ) AS enriched
+            WHERE (%s::text IS NULL OR status = %s)
+              AND (
+                  %s::text IS NULL
+                  OR lower(id::text) LIKE %s
+                  OR lower(COALESCE(movie_title, '')) LIKE %s
+                  OR lower(COALESCE(customer_name, '')) LIKE %s
+                  OR lower(COALESCE(account_username, '')) LIKE %s
+              )
+            ORDER BY starts_at DESC, id
             LIMIT 100
-            """
+            """,
+            (status, status, needle, needle, needle, needle, needle),
         ).fetchall()
-        if status_filter:
-            rows = [row for row in rows if row["status"] == status_filter]
-        if query:
-            needle = query.strip().lower()
-            rows = [
-                row
-                for row in rows
-                if needle in str(row["id"]).lower()
-                or needle in (row["movie_title"] or "").lower()
-                or needle in (row["customer_name"] or "").lower()
-                or needle in (row["account_username"] or "").lower()
-            ]
-        return rows
 
 
 class TicketRepository:

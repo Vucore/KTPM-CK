@@ -189,7 +189,7 @@ def database_time(connection):
 def require_owner(row, viewer):
     if not row or (row["account_id"] and row["account_id"] != viewer.account_id):
         raise HTTPException(404, "Không tìm thấy đơn")
-    if row["hold_owner"] and row["hold_owner"] != viewer.history_key:
+    if row["account_id"] is None and not viewer.owns_hold(row.get("hold_owner")):
         raise HTTPException(404, "Không tìm thấy đơn")
 
 
@@ -588,8 +588,8 @@ class BookingService:
                 (owner_account is not None and owner_account == viewer.account_id)
                 or (
                     owner_account is None
-                    and viewer.history_key is not None
-                    and (not hold_owner or hold_owner == viewer.history_key)
+                    and (viewer.history_key is not None or viewer.browser_key is not None)
+                    and viewer.owns_hold(hold_owner)
                 )
             )
             if not is_staff and not is_owner:

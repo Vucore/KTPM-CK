@@ -84,6 +84,7 @@ def browser_token(request: Request, response: Response) -> str:
     if token := cookie_token(request, BROWSER_COOKIE):
         return token
     token = token_hex(32)
+    request.state.new_browser_token = token
     set_cookie(request, response, BROWSER_COOKIE, token, 365 * 24 * 60 * 60)
     return token
 
@@ -141,6 +142,15 @@ def create_app(settings: Settings | None = None, downstream: httpx.BaseTransport
     configure_http(app, db)
     app.mount("/assets", StaticFiles(directory=WEB), name="assets")
 
+    @app.middleware("http")
+    async def persist_browser_cookie(request: Request, call_next):
+        response = await call_next(request)
+        if pending := getattr(request.state, "new_browser_token", None):
+            existing = response.headers.getlist("set-cookie")
+            if not any(header.startswith(f"{BROWSER_COOKIE}=") for header in existing):
+                set_cookie(request, response, BROWSER_COOKIE, pending, 365 * 24 * 60 * 60)
+        return response
+
     @app.exception_handler(RequestValidationError)
     async def validation_error(request: Request, error: RequestValidationError):
         if request.url.path in {"/api/auth/login", "/api/auth/register"}:
@@ -152,10 +162,15 @@ def create_app(settings: Settings | None = None, downstream: httpx.BaseTransport
 
     def viewer(request: Request, response: Response):
         response.headers["Cache-Control"] = "no-store"
+        raw_browser = cookie_token(request, BROWSER_COOKIE)
+        browser_key = f"browser:{token_digest(raw_browser)}" if raw_browser else None
         account = auth.current_account(cookie_token(request, ACCOUNT_COOKIE))
         if account:
-            return BookingViewer(account["id"], f"account:{account['id']}", account.get("role", "USER"))
-        return BookingViewer(history_key=f"browser:{token_digest(browser_token(request, response))}")
+            return BookingViewer(
+                account["id"], f"account:{account['id']}", account.get("role", "USER"), browser_key
+            )
+        key = f"browser:{token_digest(browser_token(request, response))}"
+        return BookingViewer(history_key=key, browser_key=key)
 
     def signed_in_account(request: Request, response: Response):
         response.headers["Cache-Control"] = "no-store"
@@ -217,8 +232,14 @@ def create_app(settings: Settings | None = None, downstream: httpx.BaseTransport
         return auth.update_profile(account["id"], payload)
 
     @app.post("/api/account/password", status_code=204, dependencies=same_origin)
-    def change_password(payload: PasswordChange, account: Account):
-        auth.change_password(account["id"], payload)
+    def change_password(payload: PasswordChange, request: Request, account: Account):
+        source = request.client.host if request.client else "unknown"
+        auth.change_password(
+            account["id"],
+            payload,
+            source=source,
+            current_token=cookie_token(request, ACCOUNT_COOKIE),
+        )
 
     @app.post("/api/auth/logout", status_code=204, dependencies=same_origin)
     def logout(request: Request, response: Response):
